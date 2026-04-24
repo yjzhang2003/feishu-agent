@@ -23,7 +23,7 @@
     "execa": "^8.0.1",
     "hono": "^4.3.0",
     "ink": "^4.4.1",
-    "ink-select-input": "^6.2.0",
+    "ink-select-input": "^5.0.0",
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "yaml": "^2.4.0",
