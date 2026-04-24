@@ -190,6 +190,12 @@
       "type": "file"
     },
     {
+      "path": "package.json",
+      "accessCount": 5,
+      "lastAccessed": 1777048654454,
+      "type": "file"
+    },
+    {
       "path": ".claude/settings.json",
       "accessCount": 4,
       "lastAccessed": 1777047746999,
@@ -229,12 +235,6 @@
       "path": "gateway/bot.py",
       "accessCount": 3,
       "lastAccessed": 1777047717709,
-      "type": "file"
-    },
-    {
-      "path": "package.json",
-      "accessCount": 3,
-      "lastAccessed": 1777048120049,
       "type": "file"
     },
     {
