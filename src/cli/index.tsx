@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import React, { useState, useEffect, useCallback } from 'react';
-import { render, Box, Text, useApp, useInput, Key } from 'ink';
-import TextInput from 'ink-text-input';
+import { render, Box, Text, useInput, useApp } from 'ink';
+import chalk from 'chalk';
+import { SelectList } from './components/SelectList.js';
 import { getAllStatuses, ComponentStatus } from './hooks/useStatus.js';
 import {
   getClaudeApiKey,
@@ -11,425 +12,318 @@ import {
   setFeishuCredentials,
   resetFeishuCredentials,
 } from '../config/settings.js';
+import { qrRegisterFeishu } from '../feishu/qr-register.js';
 import { execa } from 'execa';
 
 type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'ecc';
 
-// Main App
+const components = ['claude', 'feishu', 'github', 'ecc'] as const;
+const componentNames = ['Claude Code', 'Feishu', 'GitHub', 'ECC'];
+
 function App() {
   const { exit } = useApp();
-  const [statuses, setStatuses] = useState<Record<string, ComponentStatus>>(getAllStatuses());
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const [screen, setScreen] = useState<Screen>('main');
-  const [message, setMessage] = useState<string>('');
-  const [inputValue, setInputValue] = useState('');
-  const [inputStep, setInputStep] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [statuses, setStatuses] = useState<Record<string, ComponentStatus>>({});
+  const [message, setMessage] = useState('');
 
-  const components: Screen[] = ['claude', 'feishu', 'github', 'ecc'];
-  const componentNames: Record<Screen, string> = {
-    main: 'Main',
-    claude: 'Claude Code',
-    feishu: 'Feishu',
-    github: 'GitHub',
-    ecc: 'ECC',
-  };
+  useEffect(() => {
+    setStatuses(getAllStatuses());
+  }, []);
 
   const refreshStatuses = useCallback(() => {
     setStatuses(getAllStatuses());
   }, []);
 
-  // Main screen keyboard navigation
-  useInput((input: string, key: Key) => {
+  // 主界面键盘监听
+  useInput((input, key) => {
     if (screen !== 'main') return;
 
-    if (key.upArrow) {
+    if (key.upArrow || input === 'k') {
       setSelectedIndex((prev) => (prev - 1 + components.length) % components.length);
-    } else if (key.downArrow) {
+    } else if (key.downArrow || input === 'j') {
       setSelectedIndex((prev) => (prev + 1) % components.length);
     } else if (key.return) {
       setScreen(components[selectedIndex]);
-      setInputValue('');
-      setInputStep(0);
-    } else if (key.escape) {
+      setSelectedIndex(0);
+      setMessage('');
+    } else if (input === 'q') {
       exit();
     }
   });
 
-  // Config screen keyboard
-  useInput((input: string, key: Key) => {
+  // 子页面配置
+  const [subIndex, setSubIndex] = useState(0);
+  const [inputMode, setInputMode] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState('');
+  const [tempAppId, setTempAppId] = useState('');
+
+  // 子页面键盘监听
+  useInput(async (input, key) => {
     if (screen === 'main') return;
 
+    // 输入模式
+    if (inputMode) {
+      if (key.return) {
+        if (inputMode === 'claude-key') {
+          setClaudeApiKey(inputValue);
+          setMessage(chalk.green('✓ API key saved'));
+          setInputMode(null);
+          setInputValue('');
+          refreshStatuses();
+        } else if (inputMode === 'feishu-appid') {
+          setTempAppId(inputValue);
+          setInputMode('feishu-secret');
+          setInputValue('');
+          setMessage('Enter FEISHU_APP_SECRET:');
+        } else if (inputMode === 'feishu-secret') {
+          setFeishuCredentials(tempAppId, inputValue);
+          setMessage(chalk.green('✓ Feishu credentials saved'));
+          setInputMode(null);
+          setInputValue('');
+          setTempAppId('');
+          refreshStatuses();
+        }
+      } else if (key.escape) {
+        setInputMode(null);
+        setInputValue('');
+        setTempAppId('');
+        setMessage('');
+      } else if (key.backspace || key.delete) {
+        setInputValue((prev) => prev.slice(0, -1));
+      } else if (input && input.length === 1) {
+        setInputValue((prev) => prev + input);
+      }
+      return;
+    }
+
+    // ESC 返回主菜单
     if (key.escape) {
       setScreen('main');
+      setSelectedIndex(components.indexOf(screen));
       setMessage('');
       refreshStatuses();
+      return;
+    }
+
+    // 列表导航
+    if (key.upArrow || input === 'k') {
+      const maxIndex = getMaxIndex(screen, statuses);
+      setSubIndex((prev) => (prev - 1 + maxIndex) % maxIndex);
+    } else if (key.downArrow || input === 'j') {
+      const maxIndex = getMaxIndex(screen, statuses);
+      setSubIndex((prev) => (prev + 1) % maxIndex);
+    } else if (key.return) {
+      await executeAction(screen, subIndex, statuses, {
+        setMessage,
+        setInputMode,
+        setInputValue,
+        setTempAppId,
+        refreshStatuses,
+        setScreen,
+      });
     }
   });
 
-  // Handle Claude config
-  const handleClaudeSubmit = (value: string) => {
-    const currentKey = getClaudeApiKey();
+  // 渲染主界面
+  if (screen === 'main') {
+    const items = components.map((key, index) => ({
+      key,
+      label: componentNames[index],
+      description: statuses[key]?.message || '...',
+    }));
 
-    if (inputStep === 0) {
-      if (currentKey) {
-        // Has key, ask for action
-        if (value === 'r') {
-          setInputStep(1);
-          setInputValue('');
-        } else if (value === 'x') {
-          setInputStep(10); // Confirm reset
-          setInputValue('');
-        } else {
-          setScreen('main');
-          refreshStatuses();
-        }
-      } else {
-        // No key, enter new key
-        if (value) {
-          setClaudeApiKey(value);
-          setMessage('✓ API key saved');
-        }
-        setScreen('main');
-        refreshStatuses();
-      }
-    } else if (inputStep === 1) {
-      // Enter new key
-      if (value) {
-        setClaudeApiKey(value);
-        setMessage('✓ API key updated');
-      }
-      setScreen('main');
-      refreshStatuses();
-    } else if (inputStep === 10) {
-      // Confirm reset
-      if (value.toLowerCase() === 'y') {
-        resetClaudeApiKey();
-        setMessage('✓ API key removed');
-      }
-      setScreen('main');
-      refreshStatuses();
-    }
-  };
-
-  // Handle Feishu config
-  const handleFeishuSubmit = (value: string) => {
-    const status = statuses.feishu;
-
-    if (inputStep === 0) {
-      if (status.configured) {
-        if (value === 'r') {
-          setInputStep(1);
-          setInputValue('');
-        } else if (value === 'x') {
-          setInputStep(10);
-          setInputValue('');
-        } else {
-          setScreen('main');
-          refreshStatuses();
-        }
-      } else {
-        // Enter app id
-        if (value) {
-          setInputValue('');
-          setInputStep(2);
-          (window as any).__feishu_app_id = value;
-        } else {
-          setScreen('main');
-        }
-      }
-    } else if (inputStep === 1) {
-      // Reconfigure: enter app id
-      if (value) {
-        setInputValue('');
-        setInputStep(2);
-        (window as any).__feishu_app_id = value;
-      } else {
-        setScreen('main');
-      }
-    } else if (inputStep === 2) {
-      // Enter app secret
-      if (value) {
-        const appId = (window as any).__feishu_app_id;
-        setFeishuCredentials(appId, value);
-        setMessage('✓ Feishu credentials saved');
-      }
-      setScreen('main');
-      refreshStatuses();
-    } else if (inputStep === 10) {
-      // Confirm reset
-      if (value.toLowerCase() === 'y') {
-        resetFeishuCredentials();
-        setMessage('✓ Feishu credentials removed');
-      }
-      setScreen('main');
-      refreshStatuses();
-    }
-  };
-
-  // Handle GitHub config
-  const handleGitHubSubmit = async (value: string) => {
-    const status = statuses.github;
-
-    if (inputStep === 0) {
-      if (status.configured) {
-        if (value === 'x') {
-          setInputStep(10);
-          setInputValue('');
-        } else {
-          setScreen('main');
-          refreshStatuses();
-        }
-      } else {
-        // Start login
-        if (value.toLowerCase() === 'y' || value === '') {
-          try {
-            setMessage('Opening browser...');
-            await execa('gh', ['auth', 'login', '--git-protocol', 'https', '--web'], {
-              stdio: 'inherit',
-            });
-            setMessage('✓ GitHub authenticated');
-          } catch {
-            setMessage('✗ Failed to authenticate');
-          }
-        }
-        setScreen('main');
-        refreshStatuses();
-      }
-    } else if (inputStep === 10) {
-      // Confirm logout
-      if (value.toLowerCase() === 'y') {
-        try {
-          await execa('gh', ['auth', 'logout', '--hostname', 'github.com']);
-          setMessage('✓ Logged out');
-        } catch {
-          setMessage('✗ Failed to logout');
-        }
-      }
-      setScreen('main');
-      refreshStatuses();
-    }
-  };
-
-  // Handle ECC config
-  const handleEccSubmit = async (value: string) => {
-    const status = getEccPluginStatus();
-
-    if (inputStep === 0) {
-      if (status.installed) {
-        if (value === 'u') {
-          try {
-            setMessage('Updating...');
-            await execa('claude', ['plugins', 'update', 'everything-claude-code@everything-claude-code']);
-            setMessage('✓ ECC plugin updated');
-          } catch {
-            setMessage('✗ Failed to update');
-          }
-        }
-      } else {
-        if (value.toLowerCase() === 'y' || value === '') {
-          try {
-            setMessage('Installing...');
-            await execa('claude', ['plugins', 'install', 'everything-claude-code@everything-claude-code']);
-            setMessage('✓ ECC plugin installed');
-          } catch {
-            setMessage('✗ Failed to install');
-          }
-        }
-      }
-      setScreen('main');
-      refreshStatuses();
-    }
-  };
-
-  // Render config screens
-  const renderConfigScreen = () => {
-    const currentKey = getClaudeApiKey();
-    const eccStatus = getEccPluginStatus();
-
-    switch (screen) {
-      case 'claude':
-        if (inputStep === 0 && currentKey) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">Claude Code</Text>
-              <Text dimColor>Status: {statuses.claude.message}</Text>
-              <Text> </Text>
-              <Text>[r] reconfigure | [x] reset | [c] cancel</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleClaudeSubmit} placeholder="Enter choice..." />
-            </Box>
-          );
-        } else if (inputStep === 10) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="yellow">Reset API Key?</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleClaudeSubmit} placeholder="y/N" />
-            </Box>
-          );
-        } else {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">Claude Code</Text>
-              <Text>Enter your ANTHROPIC_API_KEY:</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleClaudeSubmit} placeholder="sk-ant-..." />
-            </Box>
-          );
-        }
-
-      case 'feishu':
-        if (inputStep === 0 && statuses.feishu.configured) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">Feishu</Text>
-              <Text dimColor>Status: {statuses.feishu.message}</Text>
-              <Text> </Text>
-              <Text>[r] reconfigure | [x] reset | [c] cancel</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleFeishuSubmit} placeholder="Enter choice..." />
-            </Box>
-          );
-        } else if (inputStep === 10) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="yellow">Reset Feishu Credentials?</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleFeishuSubmit} placeholder="y/N" />
-            </Box>
-          );
-        } else if (inputStep === 2) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">Feishu</Text>
-              <Text>Enter FEISHU_APP_SECRET:</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleFeishuSubmit} placeholder="secret..." />
-            </Box>
-          );
-        } else {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">Feishu</Text>
-              <Text dimColor>Tip: Scan QR with 'feishu-agent setup' to auto-create a bot</Text>
-              <Text> </Text>
-              <Text>Enter FEISHU_APP_ID:</Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleFeishuSubmit} placeholder="cli_xxx..." />
-            </Box>
-          );
-        }
-
-      case 'github':
-        if (inputStep === 0 && statuses.github.configured) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">GitHub</Text>
-              <Text dimColor>Status: {statuses.github.message}</Text>
-              <Text> </Text>
-              <Text>[x] logout | [c] cancel</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleGitHubSubmit} placeholder="Enter choice..." />
-            </Box>
-          );
-        } else if (inputStep === 10) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="yellow">Logout from GitHub?</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleGitHubSubmit} placeholder="y/N" />
-            </Box>
-          );
-        } else {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">GitHub</Text>
-              <Text>This will open a browser for OAuth login...</Text>
-              <Text> </Text>
-              <Text>Continue?</Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleGitHubSubmit} placeholder="Y/n" />
-            </Box>
-          );
-        }
-
-      case 'ecc':
-        if (eccStatus.installed) {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">ECC Plugin</Text>
-              <Text dimColor>Status: v{eccStatus.version} installed</Text>
-              <Text> </Text>
-              <Text>[u] update | [c] cancel</Text>
-              <Text> </Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleEccSubmit} placeholder="Enter choice..." />
-            </Box>
-          );
-        } else {
-          return (
-            <Box flexDirection="column">
-              <Text bold color="cyan">ECC Plugin</Text>
-              <Text>ECC (Everything Claude Code) provides enhanced skills and agents.</Text>
-              <Text> </Text>
-              <Text>Install?</Text>
-              <TextInput value={inputValue} onChange={setInputValue} onSubmit={handleEccSubmit} placeholder="Y/n" />
-            </Box>
-          );
-        }
-
-      default:
-        return null;
-    }
-  };
-
-  // Main screen render
-  if (screen !== 'main') {
     return (
       <Box flexDirection="column" padding={1}>
-        {renderConfigScreen()}
-        {message && (
-          <Box marginTop={1}>
-            <Text color="green">{message}</Text>
-          </Box>
-        )}
+        <Text bold color="cyan">Feishu Agent Setup</Text>
+        <Text dimColor>{'='.repeat(30)}</Text>
+        <Text dimColor>↑↓ navigate | Enter configure | q quit</Text>
         <Box marginTop={1}>
-          <Text dimColor>ESC to go back</Text>
+          <SelectList items={items} selectedIndex={selectedIndex} />
         </Box>
       </Box>
     );
   }
 
+  // 渲染子页面
+  const { options, status } = getScreenConfig(screen, statuses);
+
   return (
     <Box flexDirection="column" padding={1}>
-      <Text bold color="cyan">Feishu Agent Setup</Text>
-      <Text dimColor>{"=".repeat(30)}</Text>
-      <Text dimColor>↑↓ navigate | Enter configure | ESC quit</Text>
-      <Text> </Text>
-
-      {components.map((key, index) => {
-        const status = statuses[key];
-        const isSelected = index === selectedIndex;
-
-        return (
-          <Box key={key}>
-            <Text color={isSelected ? 'cyan' : 'white'}>
-              {isSelected ? '❯ ' : '  '}
-            </Text>
-            <Text color={status.configured ? 'green' : 'red'}>
-              {status.configured ? '✓' : '✗'}
-            </Text>
-            <Text bold={isSelected}> {componentNames[key]}: </Text>
-            <Text dimColor>{status.message}</Text>
-          </Box>
-        );
-      })}
-
+      <Text bold color="cyan">{componentNames[components.indexOf(screen)]} Configuration</Text>
+      <Text dimColor>{'='.repeat(30)}</Text>
+      {status && <Text dimColor>Status: {status}</Text>}
+      <Text dimColor>↑↓ navigate | Enter select | ESC back</Text>
+      <Box marginTop={1}>
+        <SelectList items={options} selectedIndex={subIndex} />
+      </Box>
       {message && (
         <Box marginTop={1}>
-          <Text color="green">{message}</Text>
+          <Text>{message}</Text>
+          {inputMode && <Text color="cyan"> {inputValue}</Text>}
         </Box>
       )}
     </Box>
   );
 }
 
-// Run the app
+function getMaxIndex(screen: Screen, statuses: Record<string, ComponentStatus>): number {
+  const config = getScreenConfig(screen, statuses);
+  return config.options.length;
+}
+
+function getScreenConfig(screen: Screen, statuses: Record<string, ComponentStatus>) {
+  if (screen === 'claude') {
+    const configured = !!getClaudeApiKey();
+    return {
+      status: statuses.claude?.message,
+      options: configured
+        ? [
+            { key: 'reconfigure', label: 'Reconfigure', description: 'Enter new API key' },
+            { key: 'reset', label: 'Reset', description: 'Remove API key' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ]
+        : [
+            { key: 'enter', label: 'Enter API Key', description: 'Input ANTHROPIC_API_KEY' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ],
+    };
+  }
+
+  if (screen === 'feishu') {
+    const configured = statuses.feishu?.configured;
+    return {
+      status: statuses.feishu?.message,
+      options: configured
+        ? [
+            { key: 'reconfigure', label: 'Reconfigure', description: 'Enter credentials manually' },
+            { key: 'scan', label: 'Scan QR', description: 'Create bot via QR code' },
+            { key: 'reset', label: 'Reset', description: 'Remove credentials' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ]
+        : [
+            { key: 'manual', label: 'Enter Credentials', description: 'Input APP_ID and SECRET' },
+            { key: 'scan', label: 'Scan QR', description: 'Create bot via QR code (Recommended)' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ],
+    };
+  }
+
+  if (screen === 'github') {
+    const configured = statuses.github?.configured;
+    return {
+      status: statuses.github?.message,
+      options: configured
+        ? [
+            { key: 'logout', label: 'Logout', description: 'Sign out from GitHub' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ]
+        : [
+            { key: 'login', label: 'Login', description: 'OAuth with GitHub' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ],
+    };
+  }
+
+  if (screen === 'ecc') {
+    const eccStatus = getEccPluginStatus();
+    return {
+      status: eccStatus.installed ? `v${eccStatus.version} installed` : 'Not installed',
+      options: eccStatus.installed
+        ? [
+            { key: 'update', label: 'Update', description: 'Update to latest version' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ]
+        : [
+            { key: 'install', label: 'Install', description: 'Install ECC plugin' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ],
+    };
+  }
+
+  return { status: '', options: [{ key: 'back', label: 'Back', description: 'Return to main menu' }] };
+}
+
+async function executeAction(
+  screen: Screen,
+  index: number,
+  statuses: Record<string, ComponentStatus>,
+  handlers: {
+    setMessage: (msg: string) => void;
+    setInputMode: (mode: string | null) => void;
+    setInputValue: (val: string) => void;
+    setTempAppId: (id: string) => void;
+    refreshStatuses: () => void;
+    setScreen: (s: Screen) => void;
+  }
+) {
+  const { setMessage, setInputMode, setInputValue, setTempAppId, refreshStatuses, setScreen } = handlers;
+  const config = getScreenConfig(screen, statuses);
+  const option = config.options[index];
+
+  if (option.key === 'back') {
+    setScreen('main');
+    return;
+  }
+
+  // Claude actions
+  if (screen === 'claude') {
+    if (option.key === 'enter' || option.key === 'reconfigure') {
+      setInputMode('claude-key');
+      setMessage('Enter ANTHROPIC_API_KEY:');
+      setInputValue('');
+    } else if (option.key === 'reset') {
+      resetClaudeApiKey();
+      setMessage(chalk.green('✓ API key removed'));
+      refreshStatuses();
+    }
+  }
+
+  // Feishu actions
+  if (screen === 'feishu') {
+    if (option.key === 'manual' || option.key === 'reconfigure') {
+      setInputMode('feishu-appid');
+      setMessage('Enter FEISHU_APP_ID:');
+      setInputValue('');
+    } else if (option.key === 'scan') {
+      const result = await qrRegisterFeishu();
+      if (result) {
+        setFeishuCredentials(result.app_id, result.app_secret);
+        setMessage(chalk.green('✓ Feishu credentials saved'));
+        refreshStatuses();
+      }
+    } else if (option.key === 'reset') {
+      resetFeishuCredentials();
+      setMessage(chalk.green('✓ Feishu credentials removed'));
+      refreshStatuses();
+    }
+  }
+
+  // GitHub actions
+  if (screen === 'github') {
+    if (option.key === 'login') {
+      await execa('gh', ['auth', 'login', '--git-protocol', 'https', '--web'], { stdio: 'inherit' });
+      setMessage(chalk.green('✓ GitHub authenticated'));
+      refreshStatuses();
+    } else if (option.key === 'logout') {
+      await execa('gh', ['auth', 'logout', '--hostname', 'github.com']);
+      setMessage(chalk.green('✓ Logged out'));
+      refreshStatuses();
+    }
+  }
+
+  // ECC actions
+  if (screen === 'ecc') {
+    if (option.key === 'install') {
+      await execa('claude', ['plugins', 'install', 'everything-claude-code@everything-claude-code']);
+      setMessage(chalk.green('✓ ECC plugin installed'));
+      refreshStatuses();
+    } else if (option.key === 'update') {
+      await execa('claude', ['plugins', 'update', 'everything-claude-code@everything-claude-code']);
+      setMessage(chalk.green('✓ ECC plugin updated'));
+      refreshStatuses();
+    }
+  }
+}
+
 render(<App />);

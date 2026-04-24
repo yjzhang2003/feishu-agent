@@ -7,7 +7,7 @@
     "feishu-agent": "./dist/cli/index.js"
   },
   "scripts": {
-    "cli": "tsx src/cli/index.ts",
+    "cli": "tsx src/cli/index.tsx",
     "gateway": "tsx src/gateway/server.ts",
     "build": "tsc",
     "test": "vitest",
