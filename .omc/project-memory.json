@@ -178,6 +178,12 @@
       "type": "file"
     },
     {
+      "path": "package.json",
+      "accessCount": 7,
+      "lastAccessed": 1777049339993,
+      "type": "file"
+    },
+    {
       "path": "gateway/webhook_server.py",
       "accessCount": 6,
       "lastAccessed": 1777047717807,
@@ -187,12 +193,6 @@
       "path": "tests/unit/test_webhook_server.py",
       "accessCount": 5,
       "lastAccessed": 1777047768250,
-      "type": "file"
-    },
-    {
-      "path": "package.json",
-      "accessCount": 5,
-      "lastAccessed": 1777048654454,
       "type": "file"
     },
     {
