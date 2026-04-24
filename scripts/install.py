@@ -9,10 +9,26 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 ASSETS_DIR = Path(__file__).parent.parent / "assets"
 CLAUdecode_PLUGINS_JSON = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+
+# Feishu QR registration constants
+_ACCOUNTS_URLS = {
+    "feishu": "https://accounts.feishu.cn",
+    "lark": "https://accounts.larksuite.com",
+}
+_OPEN_URLS = {
+    "feishu": "https://open.feishu.cn",
+    "lark": "https://open.larksuite.com",
+}
+_REGISTRATION_PATH = "/oauth/v1/app/registration"
+_ONBOARD_TIMEOUT_S = 10
 
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -89,16 +105,200 @@ def deploy_assets(target: Path) -> None:
             print(f"✅ Hooks deployed to {hooks_dir}")
 
 
-def generate_env(target: Path) -> None:
+# ---------------------------------------------------------------------------
+# Feishu QR Registration (based on Hermes Agent)
+# ---------------------------------------------------------------------------
+
+
+def _post_registration(base_url: str, body: dict) -> dict:
+    """POST form-encoded data to the registration endpoint, return parsed JSON."""
+    data = urlencode(body).encode("utf-8")
+    req = Request(
+        f"{base_url}{_REGISTRATION_PATH}",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    with urlopen(req, timeout=_ONBOARD_TIMEOUT_S) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _init_registration(domain: str = "feishu") -> None:
+    """Verify the environment supports client_secret auth."""
+    base_url = _ACCOUNTS_URLS.get(domain, _ACCOUNTS_URLS["feishu"])
+    res = _post_registration(base_url, {"action": "init"})
+    methods = res.get("supported_auth_methods") or []
+    if "client_secret" not in methods:
+        raise RuntimeError(
+            f"Feishu / Lark registration environment does not support client_secret auth. "
+            f"Supported: {methods}"
+        )
+
+
+def _begin_registration(domain: str = "feishu") -> dict:
+    """Start the device-code flow. Returns device_code, qr_url, interval, expire_in."""
+    base_url = _ACCOUNTS_URLS.get(domain, _ACCOUNTS_URLS["feishu"])
+    res = _post_registration(base_url, {
+        "action": "begin",
+        "archetype": "PersonalAgent",
+        "auth_method": "client_secret",
+        "request_user_info": "open_id",
+    })
+    device_code = res.get("device_code")
+    if not device_code:
+        raise RuntimeError("Feishu / Lark registration did not return a device_code")
+    qr_url = res.get("verification_uri_complete", "")
+    if "?" in qr_url:
+        qr_url += "&from=feishu-agent&tp=feishu-agent"
+    else:
+        qr_url += "?from=feishu-agent&tp=feishu-agent"
+    return {
+        "device_code": device_code,
+        "qr_url": qr_url,
+        "user_code": res.get("user_code", ""),
+        "interval": res.get("interval") or 5,
+        "expire_in": res.get("expire_in") or 600,
+    }
+
+
+def _poll_registration(
+    *,
+    device_code: str,
+    interval: int,
+    expire_in: int,
+    domain: str = "feishu",
+) -> dict | None:
+    """Poll until the user scans the QR code, or timeout/denial."""
+    deadline = time.time() + expire_in
+    current_domain = domain
+    poll_count = 0
+
+    while time.time() < deadline:
+        base_url = _ACCOUNTS_URLS.get(current_domain, _ACCOUNTS_URLS["feishu"])
+        try:
+            res = _post_registration(base_url, {
+                "action": "poll",
+                "device_code": device_code,
+                "tp": "ob_app",
+            })
+        except (URLError, OSError, json.JSONDecodeError):
+            time.sleep(interval)
+            continue
+
+        poll_count += 1
+        if poll_count == 1:
+            print("  Waiting for scan...", end="", flush=True)
+        elif poll_count % 6 == 0:
+            print(".", end="", flush=True)
+
+        # Domain auto-detection
+        user_info = res.get("user_info") or {}
+        tenant_brand = user_info.get("tenant_brand")
+        if tenant_brand == "lark" and current_domain != "lark":
+            current_domain = "lark"
+
+        # Success
+        if res.get("client_id") and res.get("client_secret"):
+            if poll_count > 0:
+                print()  # newline after dots
+            return {
+                "app_id": res["client_id"],
+                "app_secret": res["client_secret"],
+                "domain": current_domain,
+                "open_id": user_info.get("open_id"),
+            }
+
+        # Terminal errors
+        error = res.get("error")
+        if error == "access_denied":
+            print("\n❌ Registration denied by user.")
+            return None
+        if error == "expired_token":
+            print("\n❌ QR code expired. Please try again.")
+            return None
+
+        time.sleep(interval)
+
+    print("\n❌ Registration timed out.")
+    return None
+
+
+def _render_qr_terminal(url: str) -> bool:
+    """Try to render a QR code in the terminal. Returns True if successful."""
+    try:
+        import qrcode
+        qr = qrcode.QRCode()
+        qr.add_data(url)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+        return True
+    except ImportError:
+        return False
+
+
+def qr_register_feishu(*, domain: str = "feishu", timeout_seconds: int = 300) -> dict | None:
+    """Run the Feishu / Lark scan-to-create QR registration flow.
+
+    Returns on success:
+        {
+            "app_id": str,
+            "app_secret": str,
+            "domain": "feishu" | "lark",
+            "open_id": str | None,
+        }
+    """
+    print(f"\n📱 Feishu / Lark Bot Registration")
+    print("-" * 40)
+
+    try:
+        print("  Connecting to Feishu / Lark...", end="", flush=True)
+        _init_registration(domain)
+        begin = _begin_registration(domain)
+        print(" done.")
+
+        print()
+        qr_url = begin["qr_url"]
+        if _render_qr_terminal(qr_url):
+            print(f"\n  Scan the QR code above, or open this URL directly:\n  {qr_url}")
+        else:
+            print(f"  Open this URL in Feishu / Lark on your phone:\n\n  {qr_url}\n")
+            print("  Tip: pip install qrcode  to display a scannable QR code here next time")
+        print()
+
+        result = _poll_registration(
+            device_code=begin["device_code"],
+            interval=begin["interval"],
+            expire_in=min(begin["expire_in"], timeout_seconds),
+            domain=domain,
+        )
+
+        if result:
+            print(f"\n✅ Bot created successfully!")
+            print(f"   App ID: {result['app_id']}")
+            print(f"   Domain: {result['domain']}")
+        return result
+
+    except (RuntimeError, URLError, OSError, json.JSONDecodeError) as exc:
+        print(f"\n❌ Registration failed: {exc}")
+        return None
+
+
+def generate_env(target: Path, feishu_creds: dict | None = None) -> None:
     env_path = target / ".env"
     if env_path.exists() and not prompt_bool(f".env already exists at {env_path}. Regenerate?", default=False):
         print("   Skipping .env generation.")
         return
 
-    print("\n📝 Configuring environment variables (press Enter to skip):")
+    print("\n📝 Configuring environment variables:")
 
-    feishu_app_id = prompt("Feishu App ID")
-    feishu_app_secret = prompt("Feishu App Secret")
+    # If we got credentials from QR scan, use them
+    if feishu_creds:
+        feishu_app_id = feishu_creds.get("app_id", "")
+        feishu_app_secret = feishu_creds.get("app_secret", "")
+        print(f"   Using Feishu App ID from QR scan: {feishu_app_id}")
+    else:
+        feishu_app_id = prompt("Feishu App ID")
+        feishu_app_secret = prompt("Feishu App Secret")
+
     feishu_encrypt_key = prompt("Feishu Encrypt Key (optional)")
     feishu_verification_token = prompt("Feishu Verification Token (optional)")
     monitor_api_key = prompt("Monitor API Key (optional but recommended)")
@@ -216,14 +416,24 @@ def main() -> int:
     # 3. Deploy assets
     deploy_assets(target)
 
-    # 4. Generate .env
-    generate_env(target)
+    # 4. Feishu bot setup (QR or manual)
+    print("")
+    feishu_creds = None
+    if prompt_bool("\n🤖 Set up Feishu bot now? (Recommended: scan QR to auto-create)", default=True):
+        if prompt_bool("Use QR scan to create a new Feishu bot? (Recommended)", default=True):
+            domain = "lark" if prompt_bool("Use Lark (international) instead of Feishu (China)?", default=False) else "feishu"
+            feishu_creds = qr_register_feishu(domain=domain)
+        else:
+            print("\n📝 Enter your existing Feishu bot credentials manually.")
 
-    # 5. Install plugins (ECC)
+    # 5. Generate .env
+    generate_env(target, feishu_creds=feishu_creds)
+
+    # 6. Install plugins (ECC)
     print("")
     check_and_install_plugins()
 
-    # 6. Verify
+    # 7. Verify
     print("")
     if (target / "tests").exists():
         run_tests(target)
