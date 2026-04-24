@@ -56,6 +56,10 @@ def curses_single_select(
                 curses.use_default_colors()
                 curses.init_pair(1, curses.COLOR_GREEN, -1)
                 curses.init_pair(2, curses.COLOR_CYAN, -1)
+
+            # Enable keypad mode for arrow keys
+            stdscr.keypad(True)
+
             cursor = min(default_index, len(all_items) - 1)
             scroll_offset = 0
 
@@ -71,7 +75,7 @@ def curses_single_select(
                     stdscr.addnstr(0, 0, title, max_x - 1, hattr)
                     stdscr.addnstr(
                         1, 0,
-                        "  ↑↓ navigate  ENTER confirm  q cancel",
+                        "  Up/Down navigate  Enter confirm  q cancel",
                         max_x - 1, curses.A_DIM,
                     )
                 except curses.error:
@@ -89,7 +93,7 @@ def curses_single_select(
                     y = draw_i + 3
                     if y >= max_y - 1:
                         break
-                    arrow = "→" if i == cursor else " "
+                    arrow = ">" if i == cursor else " "
                     line = f" {arrow} {all_items[i]}"
                     attr = curses.A_NORMAL
                     if i == cursor:
@@ -104,14 +108,14 @@ def curses_single_select(
                 stdscr.refresh()
                 key = stdscr.getch()
 
-                if key in (curses.KEY_UP, ord("k")):
+                if key == curses.KEY_UP or key == ord("k"):
                     cursor = (cursor - 1) % len(all_items)
-                elif key in (curses.KEY_DOWN, ord("j")):
+                elif key == curses.KEY_DOWN or key == ord("j"):
                     cursor = (cursor + 1) % len(all_items)
-                elif key in (curses.KEY_ENTER, 10, 13):
+                elif key == curses.KEY_ENTER or key == 10 or key == 13:
                     result_holder[0] = cursor
                     return
-                elif key in (27, ord("q")):
+                elif key == 27 or key == ord("q"):
                     result_holder[0] = None
                     return
 
