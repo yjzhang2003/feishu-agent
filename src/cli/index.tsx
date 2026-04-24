@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import React, { useState, useEffect } from 'react';
-import { render, Box, Text, useInput, useApp } from 'ink';
-import SelectInput from 'ink-select-input';
+import { render, Box, Text, useApp, useInput } from 'ink';
 import { getAllStatuses, ComponentStatus } from './hooks/useStatus.js';
 import {
   getClaudeApiKey,
@@ -14,47 +13,61 @@ import {
 import { execa } from 'execa';
 import { input, confirm } from '@inquirer/prompts';
 
-// Status Panel Component
-function StatusPanel({ statuses }: { statuses: Record<string, ComponentStatus> }) {
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text bold color="cyan">Feishu Agent Setup</Text>
-      <Text dimColor>{"=".repeat(30)}</Text>
-      {Object.values(statuses).map((status) => (
-        <Box key={status.name}>
-          <Text color={status.configured ? 'green' : 'red'}>
-            {status.configured ? '[+]' : '[x]'}
-          </Text>
-          <Text bold> {status.name}: </Text>
-          <Text dimColor>{status.message}</Text>
-        </Box>
-      ))}
-    </Box>
-  );
-}
-
-// Main App
+// Main App - Status lines are selectable
 function App() {
   const { exit } = useApp();
   const [statuses, setStatuses] = useState<Record<string, ComponentStatus>>(getAllStatuses());
-  const [screen, setScreen] = useState<'menu' | 'claude' | 'feishu' | 'github' | 'ecc'>('menu');
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const [message, setMessage] = useState<string>('');
+  const [isConfiguring, setIsConfiguring] = useState(false);
+
+  const components = ['claude', 'feishu', 'github', 'ecc'] as const;
+  const componentNames = ['Claude Code', 'Feishu', 'GitHub', 'ECC'];
 
   const refreshStatuses = () => {
     setStatuses(getAllStatuses());
   };
 
-  const handleSelect = async (item: { value: string }) => {
-    if (item.value === 'exit') {
+  // Keyboard navigation
+  useInput((input, key) => {
+    if (isConfiguring) return;
+
+    if (key.upArrow || input === 'k') {
+      setSelectedIndex((prev) => (prev - 1 + components.length) % components.length);
+    } else if (key.downArrow || input === 'j') {
+      setSelectedIndex((prev) => (prev + 1) % components.length);
+    } else if (key.return) {
+      handleConfigure(components[selectedIndex]);
+    } else if (key.escape || input === 'q') {
       exit();
-      return;
     }
-    setScreen(item.value as typeof screen);
+  });
+
+  const handleConfigure = async (component: typeof components[number]) => {
+    setIsConfiguring(true);
+    console.log('\n');
+
+    try {
+      if (component === 'claude') {
+        await handleClaudeConfig();
+      } else if (component === 'feishu') {
+        await handleFeishuConfig();
+      } else if (component === 'github') {
+        await handleGitHubConfig();
+      } else if (component === 'ecc') {
+        await handleEccConfig();
+      }
+
+      refreshStatuses();
+    } catch (error) {
+      setMessage(`Error: ${error}`);
+    }
+
+    setIsConfiguring(false);
   };
 
   const handleClaudeConfig = async () => {
     const currentKey = getClaudeApiKey();
-    console.log('\n');
 
     if (currentKey) {
       const action = await input({
@@ -82,14 +95,10 @@ function App() {
         setMessage('✓ API key saved to ~/.claude/settings.json');
       }
     }
-
-    refreshStatuses();
-    setScreen('menu');
   };
 
   const handleFeishuConfig = async () => {
     const status = statuses.feishu;
-    console.log('\n');
 
     if (status.configured) {
       const action = await input({
@@ -124,14 +133,10 @@ function App() {
         }
       }
     }
-
-    refreshStatuses();
-    setScreen('menu');
   };
 
   const handleGitHubConfig = async () => {
     const status = statuses.github;
-    console.log('\n');
 
     if (status.configured) {
       const action = await input({
@@ -164,14 +169,10 @@ function App() {
         }
       }
     }
-
-    refreshStatuses();
-    setScreen('menu');
   };
 
   const handleEccConfig = async () => {
     const status = getEccPluginStatus();
-    console.log('\n');
 
     if (status.installed) {
       const action = await input({
@@ -199,54 +200,46 @@ function App() {
         }
       }
     }
-
-    refreshStatuses();
-    setScreen('menu');
   };
 
-  // Handle screen transitions
-  useEffect(() => {
-    if (screen === 'claude') {
-      handleClaudeConfig();
-    } else if (screen === 'feishu') {
-      handleFeishuConfig();
-    } else if (screen === 'github') {
-      handleGitHubConfig();
-    } else if (screen === 'ecc') {
-      handleEccConfig();
-    }
-  }, [screen]);
-
-  const menuItems = [
-    { label: 'Claude Code', value: 'claude' },
-    { label: 'Feishu', value: 'feishu' },
-    { label: 'GitHub', value: 'github' },
-    { label: 'ECC', value: 'ecc' },
-    { label: 'Exit', value: 'exit' },
-  ];
-
-  if (screen !== 'menu') {
+  if (isConfiguring) {
     return (
       <Box flexDirection="column">
-        <Text dimColor>Loading...</Text>
+        <Text dimColor>Configuring...</Text>
       </Box>
     );
   }
 
   return (
     <Box flexDirection="column" padding={1}>
-      <StatusPanel statuses={statuses} />
+      <Text bold color="cyan">Feishu Agent Setup</Text>
+      <Text dimColor>{"=".repeat(30)}</Text>
+      <Text dimColor>↑↓ navigate | Enter configure | ESC quit</Text>
+      <Text> </Text>
+
+      {components.map((key, index) => {
+        const status = statuses[key];
+        const isSelected = index === selectedIndex;
+
+        return (
+          <Box key={key}>
+            <Text color={isSelected ? 'cyan' : 'white'}>
+              {isSelected ? '❯ ' : '  '}
+            </Text>
+            <Text color={status.configured ? 'green' : 'red'}>
+              {status.configured ? '✓' : '✗'}
+            </Text>
+            <Text bold={isSelected}> {componentNames[index]}: </Text>
+            <Text dimColor>{status.message}</Text>
+          </Box>
+        );
+      })}
 
       {message && (
-        <Box marginBottom={1}>
+        <Box marginTop={1}>
           <Text color="green">{message}</Text>
         </Box>
       )}
-
-      <Box flexDirection="column">
-        <Text dimColor>Select component:</Text>
-        <SelectInput items={menuItems} onSelect={handleSelect} />
-      </Box>
     </Box>
   );
 }
