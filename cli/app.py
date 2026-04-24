@@ -1,4 +1,4 @@
-"""Main CLI application using prompt_toolkit."""
+"""Main CLI application using prompt_toolkit and Rich."""
 
 from __future__ import annotations
 
@@ -6,22 +6,17 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from prompt_toolkit.shortcuts import (
-    radiolist_dialog,
-    button_dialog,
-    input_dialog,
-    message_dialog,
-)
+from rich.prompt import Prompt
 
-from cli.status import get_all_status, ComponentStatus
+from cli.status import get_all_status
 from cli import actions
 
 
 console = Console()
 
 
-def format_status_summary(target_dir: Path | None = None) -> str:
-    """Format a status summary table for display."""
+def print_status_summary(target_dir: Path | None = None) -> None:
+    """Print a status summary table."""
     statuses = get_all_status(target_dir)
 
     table = Table(show_header=False, box=None, padding=(0, 2))
@@ -39,230 +34,165 @@ def format_status_summary(target_dir: Path | None = None) -> str:
             status.message or ("Configured" if status.is_configured else "Not configured"),
         )
 
-    return Panel(
-        table,
-        title="Feishu Agent Setup",
-        border_style="blue",
-    )
+    console.print(Panel(table, title="Feishu Agent Setup", border_style="blue"))
 
 
-def run_claude_menu() -> None:
-    """Handle Claude Code configuration menu."""
+def configure_claude() -> None:
+    """Configure Claude Code API key."""
     status = get_all_status()["claude"]
 
     if status.is_configured:
-        result = button_dialog(
-            title="Claude Code",
-            text=f"Status: {status.message}\n\nWhat would you like to do?",
-            buttons=[
-                ("Re-configure", "reconfigure"),
-                ("Reset", "reset"),
-                ("Cancel", "cancel"),
-            ],
-        ).run()
-
-        if result == "reconfigure":
-            api_key = input_dialog(
-                title="Claude Code API Key",
-                text="Enter your ANTHROPIC_API_KEY:",
-                password=True,
-            ).run()
-
+        console.print(f"\n[cyan]Status:[/cyan] {status.message}")
+        choice = Prompt.ask(
+            "Action",
+            choices=["r", "x", "c"],
+            default="c",
+            show_choices=True,
+            show_default=True,
+        )
+        if choice == "r":
+            api_key = Prompt.ask("Enter new ANTHROPIC_API_KEY", password=True)
             if api_key:
                 actions.configure_claude_api_key(api_key)
-                console.print("[green]✓ API key saved to ~/.claude/settings.json[/green]")
-
-        elif result == "reset":
-            confirm = button_dialog(
-                title="Reset Claude Code",
-                text="This will remove your API key from ~/.claude/settings.json\nContinue?",
-                buttons=[("Yes, Reset", True), ("Cancel", False)],
-            ).run()
-
-            if confirm:
+                console.print("[green]✓ API key updated[/green]")
+        elif choice == "x":
+            confirm = Prompt.ask("Reset API key? (y/N)", default="n")
+            if confirm.lower() == "y":
                 actions.reset_claude_api_key()
-                console.print("[green]✓ Claude API key removed[/green]")
-    else:
-        api_key = input_dialog(
-            title="Claude Code API Key",
-            text="Enter your ANTHROPIC_API_KEY:",
-            password=True,
-        ).run()
+                console.print("[green]✓ API key removed[/green]")
+        return
 
-        if api_key:
-            actions.configure_claude_api_key(api_key)
-            console.print("[green]✓ API key saved to ~/.claude/settings.json[/green]")
+    api_key = Prompt.ask("Enter your ANTHROPIC_API_KEY", password=True)
+    if api_key:
+        actions.configure_claude_api_key(api_key)
+        console.print("[green]✓ API key saved to ~/.claude/settings.json[/green]")
 
 
-def run_feishu_menu(target_dir: Path) -> None:
-    """Handle Feishu configuration menu."""
+def configure_feishu(target_dir: Path) -> None:
+    """Configure Feishu credentials."""
     status = get_all_status(target_dir)["feishu"]
 
     if status.is_configured:
-        result = button_dialog(
-            title="Feishu",
-            text=f"Status: {status.message}\n\nWhat would you like to do?",
-            buttons=[
-                ("Re-configure", "reconfigure"),
-                ("Reset", "reset"),
-                ("Cancel", "cancel"),
-            ],
-        ).run()
-
-        if result == "reconfigure":
-            _configure_feishu_credentials(target_dir)
-        elif result == "reset":
-            confirm = button_dialog(
-                title="Reset Feishu",
-                text="This will remove FEISHU_APP_ID and FEISHU_APP_SECRET from .env\nContinue?",
-                buttons=[("Yes, Reset", True), ("Cancel", False)],
-            ).run()
-
-            if confirm:
+        console.print(f"\n[cyan]Status:[/cyan] {status.message}")
+        choice = Prompt.ask(
+            "Action",
+            choices=["r", "x", "c"],
+            default="c",
+            show_choices=True,
+            show_default=True,
+        )
+        if choice == "r":
+            _input_feishu_credentials(target_dir)
+        elif choice == "x":
+            confirm = Prompt.ask("Reset Feishu credentials? (y/N)", default="n")
+            if confirm.lower() == "y":
                 actions.reset_feishu_credentials(target_dir)
                 console.print("[green]✓ Feishu credentials removed[/green]")
-    else:
-        _configure_feishu_credentials(target_dir)
-
-
-def _configure_feishu_credentials(target_dir: Path) -> None:
-    """Prompt for Feishu credentials."""
-    console.print("\n[yellow]Tip: Run 'feishu-agent setup' to scan QR and auto-create a bot[/yellow]\n")
-
-    app_id = input_dialog(
-        title="Feishu App ID",
-        text="Enter your FEISHU_APP_ID:",
-    ).run()
-
-    if not app_id:
         return
 
-    app_secret = input_dialog(
-        title="Feishu App Secret",
-        text="Enter your FEISHU_APP_SECRET:",
-        password=True,
-    ).run()
+    console.print("\n[yellow]Tip: Scan QR with 'feishu-agent setup' to auto-create a bot[/yellow]")
+    _input_feishu_credentials(target_dir)
 
+
+def _input_feishu_credentials(target_dir: Path) -> None:
+    """Prompt for Feishu credentials."""
+    app_id = Prompt.ask("FEISHU_APP_ID")
+    if not app_id:
+        return
+    app_secret = Prompt.ask("FEISHU_APP_SECRET", password=True)
     if app_secret:
         actions.configure_feishu_credentials(target_dir, app_id, app_secret)
         console.print("[green]✓ Feishu credentials saved to .env[/green]")
 
 
-def run_github_menu() -> None:
-    """Handle GitHub configuration menu."""
+def configure_github() -> None:
+    """Configure GitHub authentication."""
     status = get_all_status()["github"]
 
     if status.is_configured:
-        result = button_dialog(
-            title="GitHub",
-            text=f"Status: {status.message}\n\nWhat would you like to do?",
-            buttons=[
-                ("Logout", "logout"),
-                ("Cancel", "cancel"),
-            ],
-        ).run()
-
-        if result == "logout":
-            confirm = button_dialog(
-                title="GitHub Logout",
-                text="This will log you out of GitHub CLI.\nContinue?",
-                buttons=[("Yes, Logout", True), ("Cancel", False)],
-            ).run()
-
-            if confirm:
+        console.print(f"\n[cyan]Status:[/cyan] {status.message}")
+        choice = Prompt.ask(
+            "Action",
+            choices=["x", "c"],
+            default="c",
+            show_choices=True,
+            show_default=True,
+        )
+        if choice == "x":
+            confirm = Prompt.ask("Logout from GitHub? (y/N)", default="n")
+            if confirm.lower() == "y":
                 actions.run_github_auth_logout()
-                console.print("[green]✓ Logged out of GitHub[/green]")
-    else:
-        result = button_dialog(
-            title="GitHub Authentication",
-            text="GitHub CLI is not authenticated.\n\nThis will open a browser for OAuth login.",
-            buttons=[
-                ("Login with gh", "login"),
-                ("Cancel", "cancel"),
-            ],
-        ).run()
+                console.print("[green]✓ Logged out from GitHub[/green]")
+        return
 
-        if result == "login":
-            console.print("\n[cyan]Opening browser for GitHub OAuth...[/cyan]")
-            actions.run_github_auth_login()
+    console.print("\n[cyan]This will open a browser for GitHub OAuth login...[/cyan]")
+    confirm = Prompt.ask("Continue? (Y/n)", default="y")
+    if confirm.lower() == "y":
+        actions.run_github_auth_login()
 
 
-def run_ecc_menu() -> None:
-    """Handle ECC plugin configuration menu."""
+def configure_ecc() -> None:
+    """Configure ECC plugin."""
     status = get_all_status()["ecc"]
 
     if status.is_configured:
-        result = button_dialog(
-            title="ECC Plugin",
-            text=f"Status: {status.message}\n\nWhat would you like to do?",
-            buttons=[
-                ("Check Updates", "update"),
-                ("Cancel", "cancel"),
-            ],
-        ).run()
-
-        if result == "update":
+        console.print(f"\n[cyan]Status:[/cyan] {status.message}")
+        choice = Prompt.ask(
+            "Action",
+            choices=["u", "c"],
+            default="c",
+            show_choices=True,
+            show_default=True,
+        )
+        if choice == "u":
             console.print("\n[cyan]Updating ECC plugin...[/cyan]")
             if actions.update_ecc_plugin():
                 console.print("[green]✓ ECC plugin updated[/green]")
             else:
                 console.print("[red]✗ Failed to update ECC plugin[/red]")
-    else:
-        result = button_dialog(
-            title="ECC Plugin",
-            text="ECC (Everything Claude Code) is not installed.\n\n"
-                 "ECC provides enhanced skills, agents, and hooks for Claude Code.",
-            buttons=[
-                ("Install ECC", "install"),
-                ("Cancel", "cancel"),
-            ],
-        ).run()
+        return
 
-        if result == "install":
-            console.print("\n[cyan]Installing ECC plugin...[/cyan]")
-            if actions.install_ecc_plugin():
-                console.print("[green]✓ ECC plugin installed[/green]")
-            else:
-                console.print("[red]✗ Failed to install ECC plugin[/red]")
+    console.print("\n[cyan]ECC (Everything Claude Code) provides enhanced skills and agents.[/cyan]")
+    confirm = Prompt.ask("Install ECC plugin? (Y/n)", default="y")
+    if confirm.lower() == "y":
+        console.print("\n[cyan]Installing ECC plugin...[/cyan]")
+        if actions.install_ecc_plugin():
+            console.print("[green]✓ ECC plugin installed[/green]")
+        else:
+            console.print("[red]✗ Failed to install ECC plugin[/red]")
 
 
-def run_tui(target_dir: Path | None = None) -> None:
-    """Run the interactive TUI main loop."""
+def run_cli(target_dir: Path | None = None) -> None:
+    """Run the interactive CLI main loop."""
     target_dir = target_dir or Path.cwd()
 
+    console.print("\n[bold blue]Feishu Agent Setup[/bold blue]\n")
+    console.print("Actions: \\[r]econfigure | \\[x]reset | \\[u]pdate | \\[c]ancel\n")
+
     while True:
-        # Show current status
-        console.print(format_status_summary(target_dir))
+        print_status_summary(target_dir)
         console.print()
 
-        # Main menu
-        result = radiolist_dialog(
-            title="Select Component",
-            text="Choose a component to configure:",
-            values=[
-                ("claude", "Claude Code"),
-                ("feishu", "Feishu"),
-                ("github", "GitHub"),
-                ("ecc", "ECC Plugin"),
-                ("exit", "Exit"),
-            ],
-        ).run()
+        choice = Prompt.ask(
+            "Select",
+            choices=["1", "2", "3", "4", "q"],
+            default="q" if get_all_status(target_dir)["feishu"].is_configured else "2",
+        )
 
-        if result is None or result == "exit":
-            console.print("\n[cyan]Goodbye![/cyan]")
+        if choice == "q":
+            console.print("\n[cyan]Goodbye![/cyan]\n")
             break
+        elif choice == "1":
+            configure_claude()
+        elif choice == "2":
+            configure_feishu(target_dir)
+        elif choice == "3":
+            configure_github()
+        elif choice == "4":
+            configure_ecc()
 
-        if result == "claude":
-            run_claude_menu()
-        elif result == "feishu":
-            run_feishu_menu(target_dir)
-        elif result == "github":
-            run_github_menu()
-        elif result == "ecc":
-            run_ecc_menu()
-
-        console.print()  # Blank line before next iteration
+        console.print()
 
 
 if __name__ == "__main__":
-    run_tui()
+    run_cli()
