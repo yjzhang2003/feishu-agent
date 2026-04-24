@@ -44,6 +44,9 @@ ignore = ["E501"]
 [tool.ruff.format]
 quote-style = "double"
 
+[tool.hatch.build.targets.wheel]
+packages = ["agent", "gateway", "hooks", "monitor", "repair", "skills", "scripts"]
+
 [tool.mypy]
 python_version = "3.9"
 strict = true
