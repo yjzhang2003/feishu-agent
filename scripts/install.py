@@ -398,7 +398,8 @@ def run_tests(target: Path) -> bool:
     return False
 
 
-def main() -> int:
+def run_setup(target: Path | None = None) -> int:
+    """Run the setup wizard."""
     print("=" * 50)
     print("🚀 Feishu Agent Setup")
     print("=" * 50)
@@ -409,9 +410,10 @@ def main() -> int:
             return 1
 
     # 2. Select target directory
-    default_target = str(Path.cwd())
-    target_input = prompt("Target directory", default=default_target)
-    target = Path(target_input).expanduser().resolve()
+    if target is None:
+        default_target = str(Path.cwd())
+        target_input = prompt("Target directory", default=default_target)
+        target = Path(target_input).expanduser().resolve()
     target.mkdir(parents=True, exist_ok=True)
     print(f"📁 Target: {target}\n")
 
@@ -448,6 +450,64 @@ def main() -> int:
     print(f"  2. Start gateway:  fastapi dev gateway/webhook_server.py")
     print(f"  3. Or run a skill: claude --skill auto-repair")
     return 0
+
+
+def run_cli() -> int:
+    """Run the Feishu Agent CLI (placeholder for future expansion)."""
+    print("🤖 Feishu Agent CLI")
+    print("-" * 40)
+    print("\n  Commands:")
+    print("    setup    - Re-run setup wizard")
+    print("    help     - Show this help")
+    print("\n  TODO: Interactive CLI coming soon!")
+    print("  For now, use Claude Code Skills directly:")
+    print("    claude --skill auto-repair")
+    print("    claude --skill analyze-log")
+    return 0
+
+
+def is_setup_complete(target: Path) -> bool:
+    """Check if setup has been completed (env file exists)."""
+    return (target / ".env").exists()
+
+
+def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="feishu-agent",
+        description="Feishu Agent - Autonomous service repair with Claude Code",
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=["setup", "help"],
+        help="Command to run: 'setup' to reconfigure, 'help' for usage",
+    )
+    parser.add_argument(
+        "--target",
+        type=Path,
+        help="Target directory for setup",
+    )
+
+    args = parser.parse_args()
+
+    # Handle explicit commands
+    if args.command == "help":
+        parser.print_help()
+        return 0
+
+    if args.command == "setup":
+        return run_setup(target=args.target)
+
+    # No command specified - check if setup needed
+    target = args.target or Path.cwd()
+    if not is_setup_complete(target):
+        print("⚠️  Feishu Agent not configured. Starting setup...\n")
+        return run_setup(target=target)
+
+    # Already set up - enter CLI
+    return run_cli()
 
 
 if __name__ == "__main__":
