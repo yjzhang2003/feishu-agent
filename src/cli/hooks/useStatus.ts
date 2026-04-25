@@ -1,7 +1,6 @@
 import { execSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
-import { homedir } from 'os';
 
 export interface ComponentStatus {
   name: string;
@@ -39,32 +38,13 @@ const PROJECT_CLAUDE_DIR = resolve(process.cwd(), 'workspace', '.claude');
 const PROJECT_SETTINGS_PATH = resolve(PROJECT_CLAUDE_DIR, 'settings.json');
 const PROJECT_ENV_PATH = resolve(PROJECT_CLAUDE_DIR, '.env');
 
-// Claude Code CLI status - check project-level settings
+// Claude Code CLI status - check global installation only
 export function checkClaudeCode(): ComponentStatus {
-  // Check project-level settings first
-  if (existsSync(PROJECT_SETTINGS_PATH)) {
-    try {
-      const content = readFileSync(PROJECT_SETTINGS_PATH, 'utf-8');
-      const settings = JSON.parse(content);
-      const hasKey = settings.env?.ANTHROPIC_API_KEY || settings.env?.ANTHROPIC_AUTH_TOKEN;
-
-      if (hasKey) {
-        // Check if claude CLI is installed
-        const result = runCommand('claude --version');
-        const version = result ? result.stdout.trim().split('\n')[0] : 'CLI';
-        return { name: 'Claude Code', configured: true, message: `${version} - API configured` };
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  // Check if CLI is installed at least
   const result = runCommand('claude --version');
-  if (result) {
-    return { name: 'Claude Code', configured: false, message: 'API key not configured' };
+  if (result && result.success) {
+    const version = result.stdout.trim().split('\n')[0];
+    return { name: 'Claude Code', configured: true, message: `${version} installed` };
   }
-
   return { name: 'Claude Code', configured: false, message: 'CLI not installed' };
 }
 
@@ -131,57 +111,11 @@ export function checkGitHub(): ComponentStatus {
   return { name: 'GitHub', configured: false, message: 'Not authenticated' };
 }
 
-// ECC plugin status - check project-level enabledPlugins
-export function checkECC(): ComponentStatus {
-  // Check project-level settings for enabledPlugins
-  if (existsSync(PROJECT_SETTINGS_PATH)) {
-    try {
-      const content = readFileSync(PROJECT_SETTINGS_PATH, 'utf-8');
-      const settings = JSON.parse(content);
-
-      // Check if ECC is enabled in project settings
-      const enabledPlugins = settings.enabledPlugins || {};
-      for (const pluginId of Object.keys(enabledPlugins)) {
-        if ((pluginId.includes('oh-my-claudecode') || pluginId.includes('everything-claude-code')) && enabledPlugins[pluginId]) {
-          return { name: 'ECC', configured: true, message: 'Plugin enabled' };
-        }
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }
-
-  // Fallback: check global installation
-  const pluginsPath = resolve(homedir(), '.claude', 'plugins', 'installed_plugins.json');
-
-  if (!existsSync(pluginsPath)) {
-    return { name: 'ECC', configured: false, message: 'Plugin not installed' };
-  }
-
-  try {
-    const content = readFileSync(pluginsPath, 'utf-8');
-    const plugins = JSON.parse(content).plugins || {};
-
-    for (const pluginId of Object.keys(plugins)) {
-      if (pluginId.includes('oh-my-claudecode') || pluginId.includes('everything-claude-code')) {
-        if (plugins[pluginId] && plugins[pluginId][0]) {
-          return { name: 'ECC', configured: true, message: `Plugin v${plugins[pluginId][0].version} installed` };
-        }
-      }
-    }
-
-    return { name: 'ECC', configured: false, message: 'Plugin not installed' };
-  } catch {
-    return { name: 'ECC', configured: false, message: 'Plugin not installed' };
-  }
-}
-
 // Get all statuses
 export function getAllStatuses(): Record<string, ComponentStatus> {
   const claude = checkClaudeCode();
   const feishu = checkFeishu();
   const github = checkGitHub();
-  const ecc = checkECC();
 
-  return { claude, feishu, github, ecc };
+  return { claude, feishu, github };
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import React, { useState, useEffect, useCallback } from 'react';
 import { render, Box, Text, useInput, useApp } from 'ink';
+import { resolve } from 'path';
 import chalk from 'chalk';
 import { SelectList } from './components/SelectList.js';
 import { Header } from './components/Header.js';
@@ -9,22 +10,16 @@ import { QrScreen } from './components/QrScreen.js';
 import { GitHubScreen } from './components/GitHubScreen.js';
 import { getAllStatuses, ComponentStatus } from './hooks/useStatus.js';
 import {
-  getClaudeApiKey,
-  setClaudeApiKey,
-  resetClaudeApiKey,
-  getEccPluginStatus,
-  enableEccPlugin,
-  disableEccPlugin,
   setFeishuCredentials,
   resetFeishuCredentials,
 } from '../config/settings.js';
 import { RegisterResult } from '../feishu/qr-register.js';
 import { execa } from 'execa';
 
-type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'ecc' | 'qr' | 'github-auth';
+type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'qr' | 'github-auth';
 
-const components = ['claude', 'feishu', 'github', 'ecc'] as const;
-const componentNames = ['Claude Code', 'Feishu', 'GitHub', 'ECC'];
+const components = ['claude', 'feishu', 'github'] as const;
+const componentNames = ['Claude Code', 'Feishu', 'GitHub'];
 
 function App() {
   const { exit } = useApp();
@@ -71,13 +66,7 @@ function App() {
     // 输入模式
     if (inputMode) {
       if (key.return) {
-        if (inputMode === 'claude-key') {
-          setClaudeApiKey(inputValue);
-          setMessage(chalk.green('✓ API key saved'));
-          setInputMode(null);
-          setInputValue('');
-          refreshStatuses();
-        } else if (inputMode === 'feishu-appid') {
+        if (inputMode === 'feishu-appid') {
           setTempAppId(inputValue);
           setInputMode('feishu-secret');
           setInputValue('');
@@ -216,17 +205,16 @@ function getMaxIndex(screen: Screen, statuses: Record<string, ComponentStatus>):
 
 function getScreenConfig(screen: Screen, statuses: Record<string, ComponentStatus>) {
   if (screen === 'claude') {
-    const configured = !!getClaudeApiKey();
+    const installed = statuses.claude?.configured;
     return {
       status: statuses.claude?.message,
-      options: configured
+      options: installed
         ? [
-            { key: 'reconfigure', label: 'Reconfigure', description: 'Enter new API key' },
-            { key: 'reset', label: 'Reset', description: 'Remove API key' },
+            { key: 'open', label: 'Open Claude Code', description: 'Launch in workspace directory' },
             { key: 'back', label: 'Back', description: 'Return to main menu' },
           ]
         : [
-            { key: 'enter', label: 'Enter API Key', description: 'Input ANTHROPIC_API_KEY' },
+            { key: 'install', label: 'Install', description: 'Install Claude Code CLI globally' },
             { key: 'back', label: 'Back', description: 'Return to main menu' },
           ],
     };
@@ -267,22 +255,6 @@ function getScreenConfig(screen: Screen, statuses: Record<string, ComponentStatu
     };
   }
 
-  if (screen === 'ecc') {
-    const eccStatus = getEccPluginStatus();
-    return {
-      status: eccStatus.installed ? (eccStatus.version || 'Enabled') : 'Not enabled',
-      options: eccStatus.installed
-        ? [
-            { key: 'disable', label: 'Disable', description: 'Disable ECC for this project' },
-            { key: 'back', label: 'Back', description: 'Return to main menu' },
-          ]
-        : [
-            { key: 'enable', label: 'Enable', description: 'Enable ECC for this project' },
-            { key: 'back', label: 'Back', description: 'Return to main menu' },
-          ],
-    };
-  }
-
   return { status: '', options: [{ key: 'back', label: 'Back', description: 'Return to main menu' }] };
 }
 
@@ -310,14 +282,28 @@ async function executeAction(
 
   // Claude actions
   if (screen === 'claude') {
-    if (option.key === 'enter' || option.key === 'reconfigure') {
-      setInputMode('claude-key');
-      setMessage('Enter ANTHROPIC_API_KEY:');
-      setInputValue('');
-    } else if (option.key === 'reset') {
-      resetClaudeApiKey();
-      setMessage(chalk.green('✓ API key removed'));
-      refreshStatuses();
+    if (option.key === 'install') {
+      setMessage(chalk.cyan('Installing Claude Code CLI...'));
+      try {
+        await execa('npm', ['install', '-g', '@anthropic-ai/claude-code'], { stdio: 'inherit' });
+        setMessage(chalk.green('✓ Claude Code installed successfully'));
+        refreshStatuses();
+      } catch (error) {
+        setMessage(chalk.red(`✗ Installation failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
+      }
+    } else if (option.key === 'open') {
+      const workspacePath = resolve(process.cwd(), 'workspace');
+      setMessage(chalk.cyan(`Opening Claude Code in ${workspacePath}...`));
+      try {
+        await execa('claude', ['--print', 'Claude Code ready in workspace'], {
+          cwd: workspacePath,
+          stdio: 'inherit',
+          detached: true,
+        });
+      } catch {
+        // Fallback: just inform user
+        setMessage(chalk.green(`✓ Run: cd ${workspacePath} && claude`));
+      }
     }
   }
 
@@ -348,19 +334,6 @@ async function executeAction(
       } catch (error) {
         setMessage(chalk.red(`✗ Logout failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
       }
-    }
-  }
-
-  // ECC actions - enable/disable in project settings
-  if (screen === 'ecc') {
-    if (option.key === 'enable') {
-      enableEccPlugin();
-      setMessage(chalk.green('✓ ECC plugin enabled for this project'));
-      refreshStatuses();
-    } else if (option.key === 'disable') {
-      disableEccPlugin();
-      setMessage(chalk.green('✓ ECC plugin disabled for this project'));
-      refreshStatuses();
     }
   }
 }
