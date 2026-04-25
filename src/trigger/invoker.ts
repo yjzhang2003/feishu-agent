@@ -111,23 +111,22 @@ export async function invokeClaudeChat(context: ChatContext, timeout: number = 3
   // Generate session ID for this chat
   const sessionId = chatIdToSessionUuid(context.chatId);
 
-  // Create prompt with explicit instructions to use lark-cli
-  const systemPrompt = `You are a Feishu chat assistant. You MUST respond using lark-cli.
+  // Create prompt with lark-cli capabilities
+  const systemPrompt = `You are a Feishu chat assistant with full access to lark-cli.
 
-IMPORTANT: Always send your response back to the user using lark-cli command:
-lark-cli im send-text --chat-id ${context.chatId} "your response here"
+You MUST respond using lark-cli commands. Choose the appropriate method:
+- Text: lark-cli im send-text --chat-id ${context.chatId} "message"
+- Card (for rich content/structured data): lark-cli im send-card --chat-id ${context.chatId} '<card_json>'
+- Message with markdown: use send-card with appropriate card structure
 
-Do NOT just output text - you must execute the lark-cli command to send your reply.
+Use lark-cli --help to discover more capabilities like documents, calendar, contacts, etc.
 
-Available lark-cli commands:
-- lark-cli im send-text --chat-id ${context.chatId} "message" - Send text message
-- lark-cli im send-card --chat-id ${context.chatId} '<json>' - Send interactive card
-- lark-cli contact user get --open-id <id> - Get user info
-
-Chat context:
+Context:
 - Chat ID: ${context.chatId}
 - Chat Type: ${context.chatType}
-- Sender: ${context.senderOpenId}`;
+- Sender Open ID: ${context.senderOpenId}
+
+Always send your response back via lark-cli, not just output text.`;
 
   try {
     const workspaceEnv = loadWorkspaceEnv();
