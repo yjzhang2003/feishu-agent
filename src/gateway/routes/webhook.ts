@@ -94,9 +94,8 @@ export async function handleWebhook(c: Context) {
         return await handleHelpCommand(c, message.chat_id);
       }
 
-      // Unknown command
-      await sendTextMessage(message.chat_id, 'Unknown command. Use /help for available commands.');
-      return c.json({ status: 'ok' });
+      // Regular message - trigger chat skill
+      return await handleChatMessage(c, message.chat_id, text, sender.sender_id.open_id);
 
     } catch (error) {
       console.error('Failed to process message:', error);
@@ -157,13 +156,16 @@ async function handleRepairCommand(c: Context, chatId: string, text: string, sen
 
 async function handleStatusCommand(c: Context, chatId: string) {
   const { checkClaudeCli } = await import('../../trigger/invoker.js');
+  const { isFeishuConfigured, getAppId } = await import('../../feishu/client.js');
   const claudeStatus = await checkClaudeCli();
+  const feishuConfigured = isFeishuConfigured();
+  const appId = getAppId();
 
   await sendCardMessage(chatId, createCard({
     title: '📊 System Status',
     elements: [
       createMarkdownElement(`**Claude CLI:** ${claudeStatus.available ? `✅ ${claudeStatus.version}` : '❌ Not available'}`),
-      createMarkdownElement(`**Feishu Bot:** ${env.FEISHU_APP_ID ? '✅ Configured' : '❌ Not configured'}`),
+      createMarkdownElement(`**Feishu Bot:** ${feishuConfigured ? `✅ ${appId?.slice(0, 8)}...` : '❌ Not configured'}`),
       createMarkdownElement(`**GitHub:** ${env.GITHUB_TOKEN ? '✅ Configured' : '❌ Not configured'}`),
     ],
   }));
@@ -178,8 +180,42 @@ async function handleHelpCommand(c: Context, chatId: string) {
 /status - Check system status
 /help - Show this help message
 
-Example:
-/repair login page returns 500 error`);
+Or just send a message to chat with Claude Code!`);
 
   return c.json({ status: 'ok' });
+}
+
+async function handleChatMessage(c: Context, chatId: string, text: string, senderOpenId: string) {
+  // Send typing indicator
+  await sendTextMessage(chatId, '🤔 Thinking...');
+
+  // Write trigger for chat skill
+  writeTrigger({
+    context: text,
+    source: 'feishu-chat',
+    timestamp: new Date().toISOString(),
+    metadata: {
+      chat_id: chatId,
+      sender_open_id: senderOpenId,
+      message: text,
+    },
+  });
+
+  // Invoke chat skill
+  invokeClaudeSkill({ skill: 'chat' })
+    .then(async (result) => {
+      if (result.success) {
+        // The skill should have sent the response via lark-cli
+        // Just confirm completion
+        console.log('[Chat] Skill completed successfully');
+      } else {
+        await sendTextMessage(chatId, `❌ Error: ${result.stderr || 'Unknown error'}`);
+      }
+    })
+    .catch(async (err) => {
+      console.error('[Chat] Skill failed:', err);
+      await sendTextMessage(chatId, '❌ Failed to process your message. Please try again.');
+    });
+
+  return c.json({ status: 'accepted' });
 }

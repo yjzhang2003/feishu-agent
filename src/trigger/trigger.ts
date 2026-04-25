@@ -9,7 +9,7 @@ const RESULT_FILE = resolve(TRIGGERS_DIR, 'result.md');
 export interface TriggerData {
   context: string;
   error_log?: string;
-  source: 'feishu' | 'monitor' | 'manual';
+  source: 'feishu' | 'feishu-chat' | 'monitor' | 'manual';
   timestamp: string;
   metadata?: Record<string, unknown>;
 }
