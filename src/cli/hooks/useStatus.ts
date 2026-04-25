@@ -12,14 +12,24 @@ export interface ComponentStatus {
 const CHECK_TIMEOUT_MS = 3000;
 
 // Helper to run command with timeout
-function runCommand(cmd: string, timeoutMs: number = CHECK_TIMEOUT_MS): string | null {
+function runCommand(cmd: string, timeoutMs: number = CHECK_TIMEOUT_MS): { stdout: string; stderr: string; success: boolean } | null {
   try {
-    return execSync(cmd, {
+    const result = execSync(cmd, {
       encoding: 'utf-8',
       timeout: timeoutMs,
       stdio: ['pipe', 'pipe', 'pipe']
     });
-  } catch {
+    return { stdout: result, stderr: '', success: true };
+  } catch (error: unknown) {
+    const execError = error as { stdout?: string; stderr?: string; status?: number };
+    // Return output even on failure (gh auth status writes to stderr on success)
+    if (execError.stdout || execError.stderr) {
+      return {
+        stdout: execError.stdout || '',
+        stderr: execError.stderr || '',
+        success: false
+      };
+    }
     return null;
   }
 }
@@ -32,7 +42,7 @@ export function checkClaudeCode(): ComponentStatus {
     return { name: 'Claude Code', configured: false, message: 'CLI not installed' };
   }
 
-  const version = result.trim().split('\n')[0];
+  const version = result.stdout.trim().split('\n')[0];
 
   // Check for API key
   const settingsPath = resolve(homedir(), '.claude', 'settings.json');
@@ -84,8 +94,11 @@ export function checkGitHub(): ComponentStatus {
     return { name: 'GitHub', configured: false, message: 'Not authenticated' };
   }
 
+  // gh auth status outputs to both stdout and stderr
+  const output = result.stdout + result.stderr;
+
   // Extract username
-  const match = result.match(/Logged in to github\.com as (\S+)/);
+  const match = output.match(/Logged in to github\.com as (\S+)/);
   if (match) {
     return { name: 'GitHub', configured: true, message: `Authenticated as ${match[1]}` };
   }
