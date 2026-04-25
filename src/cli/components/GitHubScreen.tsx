@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { Header } from './Header.js';
 import { Footer } from './Footer.js';
 import { execa } from 'execa';
+
+const SUCCESS_DELAY_MS = 1500;
+const POLL_INTERVAL_MS = 2000;
 
 interface GitHubScreenProps {
   onSuccess: () => void;
@@ -10,45 +13,95 @@ interface GitHubScreenProps {
 }
 
 export function GitHubScreen({ onSuccess, onCancel }: GitHubScreenProps) {
-  const [phase, setPhase] = useState<'opening' | 'waiting' | 'success' | 'error'>('opening');
-  const [message, setMessage] = useState('Opening browser for GitHub OAuth...');
+  const [phase, setPhase] = useState<'starting' | 'waiting' | 'success' | 'error'>('starting');
+  const [message, setMessage] = useState('Starting GitHub OAuth...');
   const [dots, setDots] = useState('');
 
-  // Open browser and start polling
+  // Track mounted state
+  const mountedRef = useRef(true);
+
   useEffect(() => {
     let cancelled = false;
     let pollIntervalId: ReturnType<typeof setInterval>;
+    let successTimeoutId: ReturnType<typeof setTimeout>;
 
     async function startAuth() {
       try {
-        // Open browser with gh auth login
-        await execa('gh', ['auth', 'login', '--git-protocol', 'https', '--web'], {
-          stdio: 'inherit',
+        // First check if already authenticated
+        const statusResult = await execa('gh', ['auth', 'status'], {
+          reject: false,
+          timeout: 3000,
         });
 
-        if (cancelled) return;
+        if (statusResult.exitCode === 0) {
+          // Already authenticated
+          setPhase('success');
+          setMessage('Already authenticated!');
+          successTimeoutId = setTimeout(() => {
+            if (mountedRef.current && !cancelled) onSuccess();
+          }, SUCCESS_DELAY_MS);
+          return;
+        }
 
-        // Check if auth succeeded
+        if (cancelled || !mountedRef.current) return;
+
+        // Start auth login with auto-answer to prompts
         setPhase('waiting');
-        setMessage('Waiting for authentication');
+        setMessage('Waiting for authentication in browser');
+
+        // Use spawn with stdin pipe to auto-answer prompts
+        const authProcess = execa('gh', [
+          'auth', 'login',
+          '--git-protocol', 'https',
+          '--web',
+          '--hostname', 'github.com',
+        ], {
+          stdin: 'pipe',
+          reject: false,
+        });
+
+        // Wait a bit for the first prompt, then auto-answer
+        setTimeout(() => {
+          if (!cancelled && authProcess.stdin) {
+            // Answer 'Y' to "Authenticate Git with your GitHub credentials?"
+            authProcess.stdin.write('Y\n');
+          }
+        }, 500);
+
+        // Start polling for completion
         pollIntervalId = setInterval(async () => {
-          if (cancelled) return;
+          if (cancelled || !mountedRef.current) return;
 
           try {
-            const result = await execa('gh', ['auth', 'status'], { timeout: 3000 });
+            const result = await execa('gh', ['auth', 'status'], {
+              reject: false,
+              timeout: 3000,
+            });
+
             if (result.exitCode === 0) {
               clearInterval(pollIntervalId);
               setPhase('success');
               setMessage('GitHub authenticated successfully!');
-              setTimeout(() => onSuccess(), 1500);
+
+              // Kill the auth process if still running
+              authProcess.kill();
+
+              successTimeoutId = setTimeout(() => {
+                if (mountedRef.current && !cancelled) onSuccess();
+              }, SUCCESS_DELAY_MS);
+            } else {
+              setDots((d) => (d.length >= 3 ? '' : d + '.'));
             }
           } catch {
-            // Still waiting
             setDots((d) => (d.length >= 3 ? '' : d + '.'));
           }
-        }, 2000);
+        }, POLL_INTERVAL_MS);
+
+        // Wait for auth process to complete (or be killed)
+        await authProcess;
+
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || !mountedRef.current) return;
         setPhase('error');
         setMessage(`Auth failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
@@ -59,8 +112,16 @@ export function GitHubScreen({ onSuccess, onCancel }: GitHubScreenProps) {
     return () => {
       cancelled = true;
       clearInterval(pollIntervalId);
+      clearTimeout(successTimeoutId);
     };
   }, [onSuccess]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useInput((input, key) => {
     if (key.escape && phase !== 'success') {
@@ -73,10 +134,9 @@ export function GitHubScreen({ onSuccess, onCancel }: GitHubScreenProps) {
       <Header title="GitHub Authentication" />
 
       <Box marginTop={1} flexDirection="column">
-        {phase === 'opening' && (
+        {phase === 'starting' && (
           <>
             <Text dimColor>{message}</Text>
-            <Text dimColor>Press ESC to cancel</Text>
           </>
         )}
 
