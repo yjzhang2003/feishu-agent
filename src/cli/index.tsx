@@ -293,17 +293,7 @@ async function executeAction(
       }
     } else if (option.key === 'open') {
       const workspacePath = resolve(process.cwd(), 'workspace');
-      setMessage(chalk.cyan(`Opening Claude Code in ${workspacePath}...`));
-      try {
-        await execa('claude', ['--print', 'Claude Code ready in workspace'], {
-          cwd: workspacePath,
-          stdio: 'inherit',
-          detached: true,
-        });
-      } catch {
-        // Fallback: just inform user
-        setMessage(chalk.green(`✓ Run: cd ${workspacePath} && claude`));
-      }
+      setMessage(chalk.cyan(`cd ${workspacePath} && claude`));
     }
   }
 
