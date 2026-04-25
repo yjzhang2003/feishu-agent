@@ -111,39 +111,23 @@ export async function invokeClaudeChat(context: ChatContext, timeout: number = 3
   // Generate session ID for this chat
   const sessionId = chatIdToSessionUuid(context.chatId);
 
-  // Create a session prompt file with context
-  const sessionsDir = resolve(workspaceDir, '.claude', 'sessions');
-  if (!existsSync(sessionsDir)) {
-    mkdirSync(sessionsDir, { recursive: true });
-  }
+  // Create prompt with explicit instructions to use lark-cli
+  const systemPrompt = `You are a Feishu chat assistant. You MUST respond using lark-cli.
 
-  // Write a context file for this session
-  const contextFile = resolve(sessionsDir, `${context.chatId}.md`);
-  const contextContent = `# Feishu Chat Context
+IMPORTANT: Always send your response back to the user using lark-cli command:
+lark-cli im send-text --chat-id ${context.chatId} "your response here"
 
-- **Chat ID**: ${context.chatId}
-- **Chat Type**: ${context.chatType}
-- **Sender Open ID**: ${context.senderOpenId}
+Do NOT just output text - you must execute the lark-cli command to send your reply.
 
-## Available Commands
+Available lark-cli commands:
+- lark-cli im send-text --chat-id ${context.chatId} "message" - Send text message
+- lark-cli im send-card --chat-id ${context.chatId} '<json>' - Send interactive card
+- lark-cli contact user get --open-id <id> - Get user info
 
-You have full access to lark-cli to interact with Feishu:
-
-### Messaging
-- \`lark-cli im send-text --chat-id ${context.chatId} "<message>"\` - Send text
-- \`lark-cli im send-card --chat-id ${context.chatId} '<card_json>'\` - Send card
-
-### User Info
-- \`lark-cli contact user get --open-id <open_id>\` - Get user info
-
-## Instructions
-
-1. Respond to the user's message
-2. Use lark-cli to send your response back
-3. Be helpful and concise
-`;
-
-  writeFileSync(contextFile, contextContent);
+Chat context:
+- Chat ID: ${context.chatId}
+- Chat Type: ${context.chatType}
+- Sender: ${context.senderOpenId}`;
 
   try {
     const workspaceEnv = loadWorkspaceEnv();
@@ -151,6 +135,7 @@ You have full access to lark-cli to interact with Feishu:
       '-p',
       '--dangerously-skip-permissions',
       '--session-id', sessionId,
+      '--append-system-prompt', systemPrompt,
       context.message,
     ], {
       cwd: workspaceDir,
