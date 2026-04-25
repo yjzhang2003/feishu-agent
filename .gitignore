@@ -30,7 +30,8 @@ coverage/
 # TypeScript cache
 *.tsbuildinfo
 
-# Claude / OMC internals (keep skills)
-.claude/triggers/
-.claude/settings.json
-.omc/state/
+# Claude Code internals (root level - workspace has its own .claude)
+.claude/
+
+# OMC plugin internals
+.omc/
