@@ -88,6 +88,7 @@ export class FeishuWebSocket {
 
       const chatId = message.chat_id;
       const chatType = message.chat_type;
+      const messageId = message.message_id;
       const senderOpenId = sender.sender_id?.open_id || '';
 
       if (!senderOpenId) {
@@ -97,6 +98,9 @@ export class FeishuWebSocket {
 
       // Log incoming message
       log.messageIn(chatId, senderOpenId, text, msgType);
+
+      // Send ACK emoji reaction immediately (like Hermes)
+      await this.sendAckReaction(messageId);
 
       // Handle commands
       if (text.startsWith('/repair') || text.startsWith('/fix')) {
@@ -120,6 +124,23 @@ export class FeishuWebSocket {
       await this.handleChatMessage(chatId, chatType, text, senderOpenId);
     } catch (error) {
       log.error('feishu', 'Error handling message', { error: String(error) });
+    }
+  }
+
+  /**
+   * Send ACK emoji reaction to indicate message received
+   */
+  private async sendAckReaction(messageId: string): Promise<void> {
+    try {
+      // Use lark-cli to add reaction (simpler than SDK)
+      const { execa } = await import('execa');
+      await execa('lark-cli', ['im', 'reactions', 'create', '--message-id', messageId, '--emoji-type', 'OK'], {
+        timeout: 5000,
+        reject: false,
+      });
+    } catch (error) {
+      // Non-critical - don't block on failure
+      log.debug('feishu', 'Failed to send ACK reaction', { error: String(error) });
     }
   }
 
