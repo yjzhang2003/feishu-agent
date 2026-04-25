@@ -155,8 +155,8 @@
     },
     {
       "path": "README.md",
-      "accessCount": 15,
-      "lastAccessed": 1777092813672,
+      "accessCount": 16,
+      "lastAccessed": 1777093393938,
       "type": "file"
     },
     {
@@ -173,8 +173,8 @@
     },
     {
       "path": "package.json",
-      "accessCount": 9,
-      "lastAccessed": 1777050519221,
+      "accessCount": 11,
+      "lastAccessed": 1777093444512,
       "type": "file"
     },
     {
@@ -184,9 +184,21 @@
       "type": "file"
     },
     {
+      "path": ".env.example",
+      "accessCount": 7,
+      "lastAccessed": 1777094576885,
+      "type": "file"
+    },
+    {
       "path": "gateway/webhook_server.py",
       "accessCount": 6,
       "lastAccessed": 1777047717807,
+      "type": "file"
+    },
+    {
+      "path": "src/config/env.ts",
+      "accessCount": 6,
+      "lastAccessed": 1777094811334,
       "type": "file"
     },
     {
@@ -197,8 +209,8 @@
     },
     {
       "path": ".claude/settings.json",
-      "accessCount": 4,
-      "lastAccessed": 1777047746999,
+      "accessCount": 5,
+      "lastAccessed": 1777093461293,
       "type": "file"
     },
     {
@@ -226,15 +238,15 @@
       "type": "file"
     },
     {
-      "path": ".env.example",
-      "accessCount": 3,
-      "lastAccessed": 1777047711509,
-      "type": "file"
-    },
-    {
       "path": "gateway/bot.py",
       "accessCount": 3,
       "lastAccessed": 1777047717709,
+      "type": "file"
+    },
+    {
+      "path": "tsconfig.json",
+      "accessCount": 3,
+      "lastAccessed": 1777093481522,
       "type": "file"
     },
     {
@@ -265,6 +277,12 @@
       "path": ".claude/skills/analyze-log/SKILL.md",
       "accessCount": 2,
       "lastAccessed": 1777047762442,
+      "type": "file"
+    },
+    {
+      "path": "assets/claude/settings.json.tmpl",
+      "accessCount": 2,
+      "lastAccessed": 1777093425524,
       "type": "file"
     },
     {
@@ -427,24 +445,6 @@
       "path": ".claude/skills/notify-feishu/SKILL.md",
       "accessCount": 1,
       "lastAccessed": 1777047762400,
-      "type": "file"
-    },
-    {
-      "path": "assets/claude/settings.json.tmpl",
-      "accessCount": 1,
-      "lastAccessed": 1777047762492,
-      "type": "file"
-    },
-    {
-      "path": "tsconfig.json",
-      "accessCount": 1,
-      "lastAccessed": 1777048129364,
-      "type": "file"
-    },
-    {
-      "path": "src/config/env.ts",
-      "accessCount": 1,
-      "lastAccessed": 1777048143393,
       "type": "file"
     }
   ],

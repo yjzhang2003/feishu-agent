@@ -1,5 +1,7 @@
 import { execa } from 'execa';
+import { resolve } from 'path';
 import { env } from '../config/env.js';
+import { readFileSync, existsSync } from 'fs';
 
 export interface InvokeOptions {
   skill: string;
@@ -13,6 +15,28 @@ export interface InvokeResult {
   exitCode: number;
 }
 
+// Read .env from workspace/.claude/.env and return as env vars object
+function loadWorkspaceEnv(): Record<string, string> {
+  const envPath = resolve(env.REPO_ROOT, 'workspace', '.claude', '.env');
+  const vars: Record<string, string> = {};
+
+  if (existsSync(envPath)) {
+    try {
+      const content = readFileSync(envPath, 'utf-8');
+      for (const line of content.split('\n')) {
+        const match = line.match(/^(\w+)=(.+)$/);
+        if (match) {
+          vars[match[1]] = match[2].trim();
+        }
+      }
+    } catch {
+      // Ignore errors
+    }
+  }
+
+  return vars;
+}
+
 /**
  * Invoke Claude Code CLI with a skill
  *
@@ -21,12 +45,15 @@ export interface InvokeResult {
  */
 export async function invokeClaudeSkill(options: InvokeOptions): Promise<InvokeResult> {
   const { skill, timeout = 300000 } = options; // Default 5 minute timeout
+  const workspaceDir = resolve(env.REPO_ROOT, 'workspace');
 
   try {
+    const workspaceEnv = loadWorkspaceEnv();
     const result = await execa('claude', ['--skill', skill], {
-      cwd: env.REPO_ROOT,
+      cwd: workspaceDir,
       timeout,
-      reject: false, // Don't throw on non-zero exit
+      reject: false,
+      env: { ...process.env, ...workspaceEnv },
     });
 
     return {

@@ -24,6 +24,9 @@ const envSchema = z.object({
 
   // Monitor
   MONITOR_API_KEY: z.string().optional(),
+  MONITOR_TARGET_URL: z.string().optional(),
+  MONITOR_INTERVAL_SEC: z.string().default('60'),
+  MONITOR_TIMEOUT_MS: z.string().default('5000'),
 
   // Agent
   REPO_ROOT: z.string().default(process.cwd()),

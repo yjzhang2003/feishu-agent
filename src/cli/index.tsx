@@ -15,10 +15,10 @@ import {
 import { RegisterResult } from '../feishu/qr-register.js';
 import { execa } from 'execa';
 
-type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'qr';
+type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'lark' | 'gateway' | 'qr';
 
-const components = ['claude', 'feishu', 'github'] as const;
-const componentNames = ['Claude Code', 'Feishu', 'GitHub'];
+const components = ['claude', 'feishu', 'github', 'lark', 'gateway'] as const;
+const componentNames = ['Claude Code', 'Feishu', 'GitHub', 'Lark CLI', 'Gateway'];
 
 function App() {
   const { exit } = useApp();
@@ -237,6 +237,36 @@ function getScreenConfig(screen: Screen, statuses: Record<string, ComponentStatu
     };
   }
 
+  if (screen === 'lark') {
+    const installed = statuses.lark?.configured;
+    return {
+      status: statuses.lark?.message,
+      options: installed
+        ? [
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ]
+        : [
+            { key: 'install', label: 'Install lark-cli', description: 'Visit larksuite/cli GitHub' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ],
+    };
+  }
+
+  if (screen === 'gateway') {
+    const running = statuses.gateway?.configured;
+    return {
+      status: statuses.gateway?.message,
+      options: running
+        ? [
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ]
+        : [
+            { key: 'start', label: 'Start', description: 'Show start command' },
+            { key: 'back', label: 'Back', description: 'Return to main menu' },
+          ],
+    };
+  }
+
   return { status: '', options: [{ key: 'back', label: 'Back', description: 'Return to main menu' }] };
 }
 
@@ -298,6 +328,21 @@ async function executeAction(
   if (screen === 'github') {
     if (option.key === 'install') {
       setMessage(chalk.cyan('Open: https://cli.github.com/ to install GitHub CLI'));
+    }
+  }
+
+  // Lark CLI actions
+  if (screen === 'lark') {
+    if (option.key === 'install') {
+      setMessage(chalk.cyan('Open: https://github.com/larksuite/cli to install lark-cli'));
+    }
+  }
+
+  // Gateway actions
+  if (screen === 'gateway') {
+    if (option.key === 'start') {
+      const projectRoot = process.cwd();
+      setMessage(chalk.cyan(`cd ${projectRoot} && npm run gateway`));
     }
   }
 }
