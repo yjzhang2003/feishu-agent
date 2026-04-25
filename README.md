@@ -1,61 +1,58 @@
-# Feishu Agent — 基于 Claude Code 的飞书自动化 Agent
+# Feishu Agent — 基于 Claude Code 的飞书智能助手
 
 ## 项目简介
 
-Feishu Agent 是一个具备环境感知 Tool Use 能力的自动化 Agent，能够：
+Feishu Agent 是一个基于 Claude Code CLI 和飞书（Lark）的智能对话助手，能够：
 
-1. **监控 Web 服务**：通过健康检查、日志监听发现异常
-2. **智能分析**：利用 Claude LLM 分析 Traceback 根因
-3. **自动修复**：生成代码补丁、运行测试、提交 PR
-4. **飞书通知**：通过飞书（Lark）交互卡片通知开发者
+1. **智能对话**：通过飞书直接与 Claude AI 对话
+2. **自动修复**：分析错误日志，生成修复代码
+3. **服务监控**：健康检查、异常告警
+4. **飞书集成**：完整的 lark-cli 技能支持
 
 ## 架构设计
 
-本项目采用 **Gateway + Claude Code Skills** 的混合架构：
-
-- **Gateway（TypeScript / Hono）**：负责接收飞书消息、监控告警、发送通知
-- **Claude Code Skills（标准 SKILL.md）**：核心 Agent 逻辑以标准 Skill 形式存在
+本项目采用 **WebSocket + Claude Code Skills** 架构：
 
 ```
-飞书消息 / 监控告警 / 手动触发
-         │
-         ▼
+飞书 App
+    │
+    │ 扫码添加 Bot
+    ▼
 ┌─────────────────────────────┐
-│  Gateway (Hono :8000)       │
-│  /webhook  - 飞书事件回调    │
-│  /monitor  - 外部监控告警    │
-│  /trigger  - 手动触发(测试)  │
-│  /health   - 健康检查        │
+│  WebSocket 长连接            │
+│  (lark_oapi SDK)            │
 └──────────┬──────────────────┘
-           │ 写入 trigger 文件
+           │ 消息事件
            ▼
 ┌─────────────────────────────┐
-│  workspace/.claude/         │
-│  ├── settings.json          │  ← Claude Code 项目配置
-│  ├── triggers/latest.json   │  ← 触发上下文
-│  └── skills/                │  ← 27 个 Lark Skills
-│      ├── auto-repair/       │
-│      ├── lark-im/           │
-│      ├── lark-doc/          │
-│      └── ...                │
+│  Feishu Agent               │
+│  ├── 消息处理               │
+│  ├── ACK 表情反馈           │
+│  └── Skill 调用             │
 └──────────┬──────────────────┘
-           │ claude --skill xxx
+           │ claude -p
            ▼
 ┌─────────────────────────────┐
 │  Claude Code CLI            │
-│  读取 SKILL.md → 执行协议    │
-│  调用 lark-cli → 操作飞书    │
-│  调用 gh → GitHub PR        │
+│  ├── 读取 Skills            │
+│  ├── 调用 lark-cli 回复     │
+│  └── 会话上下文管理          │
 └─────────────────────────────┘
 ```
+
+## 特性
+
+- ✅ **无需公网 URL**：使用 WebSocket 长连接，无需配置 Webhook
+- ✅ **扫码即用**：QR 扫码自动创建 Bot 应用
+- ✅ **会话隔离**：每个飞书聊天独立会话上下文
+- ✅ **ACK 反馈**：收到消息立即发送 OK 表情确认
+- ✅ **Markdown 支持**：消息支持完整的 Markdown 格式
 
 ## 技术栈
 
 - **语言**: TypeScript + Node.js
 - **CLI 框架**: Ink (React for CLI)
-- **Web 框架**: Hono
-- **飞书集成**: lark-cli + 自建 Webhook 服务器
-- **GitHub**: gh CLI
+- **飞书集成**: @larksuiteoapi/node-sdk + lark-cli
 - **Agent**: Claude Code CLI + Standard Skills
 
 ## 项目结构
@@ -64,34 +61,25 @@ Feishu Agent 是一个具备环境感知 Tool Use 能力的自动化 Agent，能
 feishu-agent/
 ├── src/
 │   ├── cli/                 # 交互式 CLI (Ink)
-│   │   ├── index.tsx        # 入口
-│   │   ├── components/      # UI 组件
-│   │   └── hooks/           # 状态检测
-│   ├── gateway/             # 飞书网关
-│   │   ├── server.ts        # Hono 服务器
-│   │   └── routes/webhook.ts
-│   ├── feishu/              # 飞书客户端
-│   │   ├── client.ts        # 消息发送
-│   │   ├── card.ts          # 卡片构建
+│   │   └── index.tsx        # 配置界面
+│   ├── feishu/              # 飞书模块
+│   │   ├── websocket-connector.ts  # WebSocket 连接
+│   │   ├── qr-onboarding.ts # QR 扫码注册
 │   │   └── lark-auth.ts     # lark-cli 认证
-│   ├── monitor/             # 监控模块
-│   │   ├── index.ts         # 入口
-│   │   └── health-checker.ts
 │   ├── trigger/             # 触发器
-│   │   ├── trigger.ts       # 写入触发
-│   │   └── invoker.ts       # 调用 Skill
+│   │   ├── trigger.ts       # 触发文件
+│   │   └── invoker.ts       # 调用 Claude CLI
 │   └── config/              # 配置
 │       └── env.ts           # 环境变量
 ├── workspace/
 │   └── .claude/             # Claude Code 工作目录
-│       ├── settings.json    # Claude Code 配置
-│       ├── .env             # 飞书凭证 (可选)
-│       ├── triggers/        # 触发文件
-│       └── skills/          # 27 个 Skills
-│           ├── auto-repair/
-│           ├── lark-im/
-│           ├── lark-doc/
-│           └── ...
+│       ├── settings.json    # Claude 配置
+│       ├── sessions/        # 会话文件
+│       └── skills/          # Skills 目录
+│           ├── chat/        # 对话 Skill
+│           ├── lark-nav/    # Lark 导航
+│           ├── lark-im/     # 即时通讯
+│           └── ...          # 更多 Skills
 └── package.json
 ```
 
@@ -100,8 +88,8 @@ feishu-agent/
 ### 前置要求
 
 - Node.js 18+
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/installation) 已安装
-- [lark-cli](https://github.com/larksuite/cli) 已安装
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code/installation)
+- [lark-cli](https://github.com/larksuite/cli)
 
 ### 安装
 
@@ -119,117 +107,72 @@ npm run cli
 ```
 
 CLI 会引导你完成：
-1. **Claude Code** - 检测全局安装状态
-2. **Feishu** - 使用 lark-cli 浏览器认证
-3. **GitHub** - 检测 gh CLI 安装状态
-4. **Gateway** - 启动网关服务
+1. **Claude Code** - 检测安装状态
+2. **Feishu** - QR 扫码认证（推荐）
+3. **GitHub** - 检测 gh CLI
+4. **Service** - 启动后台服务
 
-#### Claude Code 项目配置
-
-如需配置 Claude Code（模型、API 等），编辑：
-
-```
-workspace/.claude/settings.json
-```
-
-示例配置：
-
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
-    "ANTHROPIC_MODEL": "claude-sonnet-4-6"
-  }
-}
-```
-
-敏感的 API Key 建议放在全局配置 `~/.claude/settings.json` 中。
-
-### 启动 Gateway
+### 启动服务
 
 ```bash
-npm run gateway
+npm start          # 前台运行
+npm start:prod     # PM2 后台运行
 ```
 
-Gateway 启动后：
-- Health: http://localhost:8000/health
-- Webhook: http://localhost:8000/webhook
-- Monitor: http://localhost:8000/monitor
+## 飞书命令
 
-### 触发自动修复
+在飞书中与 Bot 对话：
 
-**方式一：飞书命令**
-
-在飞书群中 @机器人并发送：
-```
-/repair 修复登录页面的 500 错误
-```
-
-**方式二：监控告警**
-
-```bash
-curl -X POST http://localhost:8000/monitor \
-  -H "Content-Type: application/json" \
-  -d '{"context":"Health check failed","error_log":"Traceback..."}'
-```
-
-**方式三：手动触发**
-
-```bash
-curl -X POST http://localhost:8000/trigger \
-  -H "Content-Type: application/json" \
-  -d '{"context":"Manual repair request"}'
-```
-
-## 监控配置
-
-Gateway 支持自动健康检查，通过环境变量配置：
-
-```bash
-# 在 .env 或环境变量中设置
-MONITOR_TARGET_URL=http://your-service:port
-MONITOR_INTERVAL_SEC=60    # 检查间隔（秒）
-MONITOR_TIMEOUT_MS=5000    # 请求超时（毫秒）
-```
-
-当目标服务连续 2 次健康检查失败时，会自动触发 `auto-repair` Skill。
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示帮助 |
+| `/status` | 查看系统状态 |
+| `/repair [context]` | 触发自动修复 |
+| 普通消息 | 与 Claude AI 对话 |
 
 ## Skills 列表
 
-项目内置 27 个 Lark Skills，覆盖飞书各项能力：
+内置多个 Lark Skills：
 
 | Skill | 描述 |
 |-------|------|
-| `lark-im` | 即时通讯：收发消息、管理群聊 |
-| `lark-doc` | 文档操作：创建、编辑文档 |
-| `lark-sheets` | 表格操作：读写电子表格 |
-| `lark-calendar` | 日历管理：事件、日程 |
-| `lark-drive` | 云盘操作：文件上传下载 |
-| `lark-approval` | 审批流程：发起、查询审批 |
-| `auto-repair` | 自动修复：分析错误、生成修复 |
-| ... | 完整列表见 `workspace/.claude/skills/` |
+| `chat` | 智能对话 |
+| `lark-im` | 即时通讯 |
+| `lark-doc` | 文档操作 |
+| `lark-sheets` | 表格操作 |
+| `lark-calendar` | 日历管理 |
+| `lark-drive` | 云盘操作 |
+| `lark-nav` | 技能导航 |
+| `auto-repair` | 自动修复 |
 
-## Webhook 签名验证
-
-Gateway 自动验证飞书 Webhook 签名（如果配置了 `FEISHU_ENCRYPT_KEY`）：
+## 开发命令
 
 ```bash
-# 可选：配置签名验证密钥
-FEISHU_ENCRYPT_KEY=your_encrypt_key
-FEISHU_VERIFICATION_TOKEN=your_token
+npm run cli          # 配置 CLI
+npm start            # 启动服务
+npm run start:prod   # PM2 后台运行
+npm stop             # 停止服务
+npm restart          # 重启服务
+npm run logs         # 查看日志
+npm run build        # 构建
+npm test             # 测试
 ```
 
-## 安全设计
+## PM2 管理
 
-| 机制 | 说明 |
-|------|------|
-| Webhook 签名验证 | HMAC-SHA256 验证请求来源 |
-| Monitor API Key | 保护 /monitor 端点 |
-| lark-cli 认证 | 凭证存储在用户目录，不入代码库 |
+服务使用 PM2 管理：
+
+```bash
+npm run start:prod   # 启动
+npm stop             # 停止
+npm restart          # 重启
+npm run logs         # 日志
+npm run status       # 状态
+```
 
 ## 扩展 Skill
 
-在 `workspace/.claude/skills/` 下创建目录：
+在 `workspace/.claude/skills/` 下创建：
 
 ```
 workspace/.claude/skills/my-skill/
@@ -241,38 +184,14 @@ SKILL.md 格式：
 ```yaml
 ---
 name: my-skill
-description: 描述功能
+description: 功能描述
 ---
 
 # 协议
 
-## Input
-- 参数说明
-
 ## Procedure
 1. 步骤一
 2. 步骤二
-
-## Output
-- 期望输出
-```
-
-调用方式：
-```bash
-claude --skill my-skill
-```
-
-## 开发命令
-
-```bash
-# 开发
-npm run dev          # 监听模式编译
-npm run build        # 构建
-npm run cli          # 启动配置 CLI
-npm run gateway      # 启动 Gateway
-
-# 类型检查
-npx tsc --noEmit
 ```
 
 ## License
