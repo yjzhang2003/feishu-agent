@@ -51,8 +51,10 @@ function loadWorkspaceEnv(): Record<string, string> {
 function chatIdToSessionUuid(chatId: string): string {
   // Create a hash of the chat ID
   const hash = createHash('sha256').update(chatId).digest('hex');
-  // Format as UUID: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 15)}-${(parseInt(hash.slice(15, 16), 16) & 0x3 | 0x8).toString(16)}${hash.slice(16, 18)}-${hash.slice(18, 30)}`;
+  // Format as valid UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+  // 8-4-4-4-12 = 32 hex chars + 4 dashes = 36 chars
+  // y must be one of 8, 9, a, or b
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(12, 15)}-${(parseInt(hash.slice(15, 16), 16) & 0x3 | 0x8).toString(16)}${hash.slice(16, 19)}-${hash.slice(19, 31)}`;
 }
 
 /**
