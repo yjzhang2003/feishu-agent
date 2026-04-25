@@ -10,7 +10,7 @@ import { getAllStatuses, ComponentStatus, checkService, ServiceStatus } from './
 import { initLarkConfig, removeLarkConfig } from '../feishu/lark-auth.js';
 import { execa } from 'execa';
 
-type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'service' | 'init';
+type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'service' | 'logs' | 'init';
 
 const components = ['claude', 'feishu', 'github', 'service'] as const;
 const componentNames = ['Claude Code', 'Feishu (Lark)', 'GitHub', 'Service'];
@@ -23,6 +23,10 @@ function App() {
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus | null>(null);
   const [message, setMessage] = useState('');
   const [initOutput, setInitOutput] = useState<string[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [logsErr, setLogsErr] = useState<string[]>([]);
+  const [logsOffset, setLogsOffset] = useState(0);
+  const [logType, setLogType] = useState<'out' | 'err'>('out');
 
   useEffect(() => {
     setStatuses(getAllStatuses());
@@ -56,11 +60,32 @@ function App() {
     if (screen === 'main') return;
 
     if (key.escape) {
-      const componentIndex = components.indexOf(screen as typeof components[number]);
-      setScreen('main');
-      setSelectedIndex(componentIndex >= 0 ? componentIndex : 1); // Default to feishu if coming from init
+      if (screen === 'logs') {
+        setScreen('service');
+        setLogs([]);
+        setLogsOffset(0);
+      } else {
+        const componentIndex = components.indexOf(screen as typeof components[number]);
+        setScreen('main');
+        setSelectedIndex(componentIndex >= 0 ? componentIndex : 1); // Default to feishu if coming from init
+      }
       setMessage('');
       setInitOutput([]); // Clear init output when returning
+      return;
+    }
+
+    // Logs screen navigation
+    if (screen === 'logs') {
+      const currentLogs = logType === 'out' ? logs : logsErr;
+      const maxOffset = Math.max(0, currentLogs.length - 15);
+      if (key.upArrow || input === 'k') {
+        setLogsOffset((prev) => Math.max(0, prev - 1));
+      } else if (key.downArrow || input === 'j') {
+        setLogsOffset((prev) => Math.min(maxOffset, prev + 1));
+      } else if (input === 't') {
+        setLogType((prev) => (prev === 'out' ? 'err' : 'out'));
+        setLogsOffset(0);
+      }
       return;
     }
 
@@ -78,6 +103,10 @@ function App() {
         refreshStatuses,
         setScreen,
         setInitOutput,
+        setLogs,
+        setLogsErr,
+        setLogsOffset,
+        setLogType,
       });
     }
   });
@@ -129,6 +158,31 @@ function App() {
           </Box>
         )}
         <Footer hints={['Complete auth in browser...', 'ESC Cancel']} />
+      </Box>
+    );
+  }
+
+  if (screen === 'logs') {
+    const currentLogs = logType === 'out' ? logs : logsErr;
+    const visibleLogs = currentLogs.slice(logsOffset, logsOffset + 15);
+    const logTitle = logType === 'out' ? 'Service Logs (stdout)' : 'Service Logs (stderr)';
+
+    return (
+      <Box flexDirection="column" padding={1}>
+        <Header title={logTitle} />
+        <Box marginTop={1} flexDirection="column">
+          {visibleLogs.length === 0 ? (
+            <Text dimColor>No logs available</Text>
+          ) : (
+            visibleLogs.map((line, i) => (
+              <Text key={i} color={logType === 'err' ? 'red' : 'white'}>{line}</Text>
+            ))
+          )}
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>Lines {logsOffset + 1}-{Math.min(logsOffset + 15, currentLogs.length)} of {currentLogs.length}</Text>
+        </Box>
+        <Footer hints={['↑↓ Scroll', 't Toggle stdout/stderr', 'ESC Back']} />
       </Box>
     );
   }
@@ -246,9 +300,13 @@ async function executeAction(
     refreshStatuses: () => void;
     setScreen: (s: Screen) => void;
     setInitOutput: React.Dispatch<React.SetStateAction<string[]>>;
+    setLogs: React.Dispatch<React.SetStateAction<string[]>>;
+    setLogsErr: React.Dispatch<React.SetStateAction<string[]>>;
+    setLogsOffset: React.Dispatch<React.SetStateAction<number>>;
+    setLogType: React.Dispatch<React.SetStateAction<'out' | 'err'>>;
   }
 ) {
-  const { setMessage, refreshStatuses, setScreen, setInitOutput } = handlers;
+  const { setMessage, refreshStatuses, setScreen, setInitOutput, setLogs, setLogsErr, setLogsOffset, setLogType } = handlers;
   const config = getScreenConfig(screen, statuses, serviceStatus);
   const option = config.options[index];
 
@@ -341,13 +399,39 @@ async function executeAction(
         setMessage(chalk.red(`✗ Failed to restart: ${error instanceof Error ? error.message : 'Unknown error'}`));
       }
     } else if (option.key === 'logs') {
-      setMessage(chalk.cyan('Opening logs... (Ctrl+C to exit)'));
+      // Load logs from PM2 log files
+      const { readFileSync, existsSync } = await import('fs');
+      const logPath = './logs/pm2-out.log';
+      const errLogPath = './logs/pm2-error.log';
+
+      // Load stdout logs
+      let logContent = '';
       try {
-        await execa('pm2', ['logs', 'feishu-agent'], { stdio: 'inherit' });
-        setMessage('');
+        if (existsSync(logPath)) {
+          logContent = readFileSync(logPath, 'utf-8');
+        }
       } catch {
-        setMessage('');
+        // Ignore read errors
       }
+
+      // Load stderr logs
+      let errLogContent = '';
+      try {
+        if (existsSync(errLogPath)) {
+          errLogContent = readFileSync(errLogPath, 'utf-8');
+        }
+      } catch {
+        // Ignore read errors
+      }
+
+      const logLines = logContent.trim().split('\n').filter(Boolean);
+      const errLogLines = errLogContent.trim().split('\n').filter(Boolean);
+
+      setLogs(logLines);
+      setLogsErr(errLogLines);
+      setLogsOffset(0);
+      setLogType('out');
+      setScreen('logs');
     }
   }
 }
