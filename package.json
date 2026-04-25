@@ -8,7 +8,7 @@
   },
   "scripts": {
     "cli": "tsx src/cli/index.tsx",
-    "gateway": "tsx src/gateway/server.ts",
+    "start": "tsx src/start.ts",
     "build": "tsc",
     "test": "vitest",
     "test:run": "vitest run",
