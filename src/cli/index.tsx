@@ -316,7 +316,7 @@ async function executeAction(
     if (option.key === 'start') {
       setMessage(chalk.cyan('Starting feishu-agent service...'));
       try {
-        await execa('pm2', ['start', 'ecosystem.config.cjs'], { stdio: 'inherit' });
+        await execa('pm2', ['start', 'ecosystem.config.cjs']);
         setMessage(chalk.green('✓ Service started'));
         refreshStatuses();
       } catch (error) {
@@ -325,7 +325,7 @@ async function executeAction(
     } else if (option.key === 'stop') {
       setMessage(chalk.cyan('Stopping feishu-agent service...'));
       try {
-        await execa('pm2', ['stop', 'feishu-agent'], { stdio: 'inherit' });
+        await execa('pm2', ['stop', 'feishu-agent']);
         setMessage(chalk.green('✓ Service stopped'));
         refreshStatuses();
       } catch (error) {
@@ -334,7 +334,7 @@ async function executeAction(
     } else if (option.key === 'restart') {
       setMessage(chalk.cyan('Restarting feishu-agent service...'));
       try {
-        await execa('pm2', ['restart', 'feishu-agent'], { stdio: 'inherit' });
+        await execa('pm2', ['restart', 'feishu-agent']);
         setMessage(chalk.green('✓ Service restarted'));
         refreshStatuses();
       } catch (error) {
