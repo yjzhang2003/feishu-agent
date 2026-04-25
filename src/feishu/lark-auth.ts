@@ -34,7 +34,7 @@ export function parseInitOutput(output: string): { url: string; userCode: string
  */
 export async function checkLarkConfig(): Promise<LarkConfigStatus> {
   return new Promise((resolve) => {
-    const proc = spawn('lark-cli', ['config', 'show', '--format', 'json'], {
+    const proc = spawn('lark-cli', ['config', 'show'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

@@ -269,16 +269,31 @@ Or just send a message to chat with Claude Code!`);
 
 /**
  * Load lark-cli configuration
+ * Priority: Environment variables > lark-cli config file
  */
 export async function loadLarkCliConfig(): Promise<FeishuWebSocketConfig | null> {
   const os = await import('os');
   const path = await import('path');
   const fs = await import('fs');
 
+  // First check environment variables
+  const envAppId = process.env.LARK_APP_ID;
+  const envAppSecret = process.env.LARK_APP_SECRET;
+
+  if (envAppId && envAppSecret) {
+    log.debug('feishu', 'Using LARK_APP_ID/LARK_APP_SECRET from environment');
+    return {
+      appId: envAppId,
+      appSecret: envAppSecret,
+    };
+  }
+
+  // Fall back to lark-cli config
   const configPath = path.join(os.homedir(), '.lark-cli', 'config.json');
 
   if (!fs.existsSync(configPath)) {
     log.error('feishu', 'lark-cli config not found', { path: configPath });
+    log.error('feishu', 'Set LARK_APP_ID and LARK_APP_SECRET environment variables or run: lark-cli config init --new');
     return null;
   }
 
@@ -286,15 +301,33 @@ export async function loadLarkCliConfig(): Promise<FeishuWebSocketConfig | null>
     const content = fs.readFileSync(configPath, 'utf-8');
     const config = JSON.parse(content);
 
-    if (!config.appId || !config.appSecret) {
-      log.error('feishu', 'Invalid lark-cli config: missing appId or appSecret');
+    // Handle new config format with apps array
+    const appConfig = config.apps?.[0] || config;
+
+    if (!appConfig.appId) {
+      log.error('feishu', 'Invalid lark-cli config: missing appId');
       return null;
     }
 
-    log.debug('feishu', 'Loaded lark-cli config', { appId: config.appId.slice(0, 8) + '...' });
+    // Check if appSecret is stored in keychain (object with source: "keychain")
+    if (appConfig.appSecret && typeof appConfig.appSecret === 'object' && appConfig.appSecret.source === 'keychain') {
+      log.error('feishu', 'lark-cli stores appSecret in system keychain');
+      log.error('feishu', 'Please set LARK_APP_SECRET environment variable in .env file:');
+      log.error('feishu', `  LARK_APP_ID=${appConfig.appId}`);
+      log.error('feishu', '  LARK_APP_SECRET=your_app_secret');
+      return null;
+    }
+
+    if (!appConfig.appSecret || typeof appConfig.appSecret !== 'string') {
+      log.error('feishu', 'Invalid lark-cli config: missing appSecret');
+      return null;
+    }
+
+    log.debug('feishu', 'Loaded lark-cli config', { appId: appConfig.appId.slice(0, 8) + '...' });
     return {
-      appId: config.appId,
-      appSecret: config.appSecret,
+      appId: appConfig.appId,
+      appSecret: appConfig.appSecret,
+      domain: appConfig.brand === 'lark' ? lark.Domain.Lark : lark.Domain.Feishu,
     };
   } catch (error) {
     log.error('feishu', 'Failed to parse lark-cli config', { error: String(error) });
