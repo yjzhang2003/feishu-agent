@@ -2,6 +2,7 @@ import * as lark from '@larksuiteoapi/node-sdk';
 import { writeTrigger } from '../trigger/trigger.js';
 import { invokeClaudeSkill } from '../trigger/invoker.js';
 import { env } from '../config/env.js';
+import { log } from '../utils/logger.js';
 
 export interface FeishuWebSocketConfig {
   appId: string;
@@ -43,7 +44,7 @@ export class FeishuWebSocket {
     });
 
     this.connected = true;
-    console.log('[Feishu] WebSocket connected');
+    log.info('feishu', 'WebSocket connected');
   }
 
   async disconnect(): Promise<void> {
@@ -51,7 +52,7 @@ export class FeishuWebSocket {
       this.wsClient.close();
       this.wsClient = null;
       this.connected = false;
-      console.log('[Feishu] WebSocket disconnected');
+      log.info('feishu', 'WebSocket disconnected');
     }
   }
 
@@ -65,7 +66,7 @@ export class FeishuWebSocket {
 
   private async handleMessage(data: {
     sender: { sender_id?: { open_id?: string }; sender_type: string };
-    message: { message_id: string; chat_id: string; content: string; chat_type: string };
+    message: { message_id: string; chat_id: string; content: string; chat_type: string; message_type?: string };
   }): Promise<void> {
     try {
       const { message, sender } = data;
@@ -77,6 +78,7 @@ export class FeishuWebSocket {
 
       // Parse message content
       let text = '';
+      let msgType = message.message_type || 'text';
       try {
         const content = JSON.parse(message.content);
         text = content.text || '';
@@ -88,11 +90,12 @@ export class FeishuWebSocket {
       const senderOpenId = sender.sender_id?.open_id || '';
 
       if (!senderOpenId) {
-        console.warn('[Feishu] Message without sender_id, skipping');
+        log.warn('feishu', 'Message without sender_id, skipping');
         return;
       }
 
-      console.log(`[Feishu] Received message from ${senderOpenId}: ${text}`);
+      // Log incoming message
+      log.messageIn(chatId, senderOpenId, text, msgType);
 
       // Handle commands
       if (text.startsWith('/repair') || text.startsWith('/fix')) {
@@ -101,11 +104,13 @@ export class FeishuWebSocket {
       }
 
       if (text.startsWith('/status')) {
+        log.command(chatId, '/status');
         await this.handleStatusCommand(chatId);
         return;
       }
 
       if (text.startsWith('/help')) {
+        log.command(chatId, '/help');
         await this.handleHelpCommand(chatId);
         return;
       }
@@ -113,12 +118,13 @@ export class FeishuWebSocket {
       // Regular message - trigger chat skill
       await this.handleChatMessage(chatId, text, senderOpenId);
     } catch (error) {
-      console.error('[Feishu] Error handling message:', error);
+      log.error('feishu', 'Error handling message', { error: String(error) });
     }
   }
 
   private async handleRepairCommand(chatId: string, text: string, senderOpenId: string): Promise<void> {
     const context = text.replace(/^\/(repair|fix)\s*/, '').trim() || 'Repair requested';
+    log.command(chatId, '/repair', context);
 
     // Send acknowledgment
     await this.sendCardMessage(chatId, {
@@ -141,32 +147,39 @@ export class FeishuWebSocket {
     });
 
     // Invoke skill asynchronously
+    log.skill('auto-repair', 'start', { chatId, context });
     invokeClaudeSkill({ skill: 'auto-repair' })
       .then(async (result) => {
         if (result.success) {
+          log.skill('auto-repair', 'success', { chatId });
           await this.sendCardMessage(chatId, {
             title: '✅ Repair Complete',
             elements: ['The repair has been completed successfully.'],
           });
         } else {
+          log.skill('auto-repair', 'error', { chatId, error: result.stderr });
           await this.sendCardMessage(chatId, {
             title: '❌ Repair Failed',
             elements: [`\`\`\`\n${result.stderr || 'Unknown error'}\n\`\`\``],
           });
         }
       })
-      .catch(console.error);
+      .catch((error) => {
+        log.error('feishu', 'Repair command failed', { error: String(error) });
+      });
   }
 
   private async handleStatusCommand(chatId: string): Promise<void> {
     const { checkClaudeCli } = await import('../trigger/invoker.js');
     const claudeStatus = await checkClaudeCli();
 
-    await this.sendTextMessage(chatId, `📊 System Status
+    const statusText = `📊 System Status
 
 **Claude CLI:** ${claudeStatus.available ? `✅ ${claudeStatus.version}` : '❌ Not available'}
 **WebSocket:** ${this.connected ? '✅ Connected' : '❌ Disconnected'}
-**GitHub:** ${env.GITHUB_TOKEN ? '✅ Configured' : '❌ Not configured'}`);
+**GitHub:** ${env.GITHUB_TOKEN ? '✅ Configured' : '❌ Not configured'}`;
+
+    await this.sendTextMessage(chatId, statusText);
   }
 
   private async handleHelpCommand(chatId: string): Promise<void> {
@@ -196,16 +209,18 @@ Or just send a message to chat with Claude Code!`);
     });
 
     // Invoke chat skill
+    log.skill('chat', 'start', { chatId });
     invokeClaudeSkill({ skill: 'chat' })
       .then(async (result) => {
         if (result.success) {
-          console.log('[Chat] Skill completed successfully');
+          log.skill('chat', 'success', { chatId });
         } else {
+          log.skill('chat', 'error', { chatId, error: result.stderr });
           await this.sendTextMessage(chatId, `❌ Error: ${result.stderr || 'Unknown error'}`);
         }
       })
       .catch(async (err) => {
-        console.error('[Chat] Skill failed:', err);
+        log.error('chat', 'Skill failed', { error: String(err) });
         await this.sendTextMessage(chatId, '❌ Failed to process your message. Please try again.');
       });
   }
@@ -222,8 +237,9 @@ Or just send a message to chat with Claude Code!`);
           msg_type: 'text',
         },
       });
+      log.messageOut(chatId, text, 'text');
     } catch (error) {
-      console.error('[Feishu] Error sending text message:', error);
+      log.error('feishu', 'Error sending text message', { chatId, error: String(error) });
     }
   }
 
@@ -244,8 +260,9 @@ Or just send a message to chat with Claude Code!`);
           msg_type: 'interactive',
         },
       });
+      log.messageOut(chatId, `[Card] ${card.title}`, 'interactive');
     } catch (error) {
-      console.error('[Feishu] Error sending card message:', error);
+      log.error('feishu', 'Error sending card message', { chatId, error: String(error) });
     }
   }
 }
@@ -254,7 +271,6 @@ Or just send a message to chat with Claude Code!`);
  * Load lark-cli configuration
  */
 export async function loadLarkCliConfig(): Promise<FeishuWebSocketConfig | null> {
-  const { execa } = await import('execa');
   const os = await import('os');
   const path = await import('path');
   const fs = await import('fs');
@@ -262,7 +278,7 @@ export async function loadLarkCliConfig(): Promise<FeishuWebSocketConfig | null>
   const configPath = path.join(os.homedir(), '.lark-cli', 'config.json');
 
   if (!fs.existsSync(configPath)) {
-    console.error('[Feishu] lark-cli config not found at', configPath);
+    log.error('feishu', 'lark-cli config not found', { path: configPath });
     return null;
   }
 
@@ -271,16 +287,17 @@ export async function loadLarkCliConfig(): Promise<FeishuWebSocketConfig | null>
     const config = JSON.parse(content);
 
     if (!config.appId || !config.appSecret) {
-      console.error('[Feishu] Invalid lark-cli config: missing appId or appSecret');
+      log.error('feishu', 'Invalid lark-cli config: missing appId or appSecret');
       return null;
     }
 
+    log.debug('feishu', 'Loaded lark-cli config', { appId: config.appId.slice(0, 8) + '...' });
     return {
       appId: config.appId,
       appSecret: config.appSecret,
     };
   } catch (error) {
-    console.error('[Feishu] Failed to parse lark-cli config:', error);
+    log.error('feishu', 'Failed to parse lark-cli config', { error: String(error) });
     return null;
   }
 }
