@@ -49,8 +49,13 @@ export async function invokeClaudeSkill(options: InvokeOptions): Promise<InvokeR
 
   try {
     const workspaceEnv = loadWorkspaceEnv();
-    // Skills are invoked via /skill-name, not --skill option
-    const result = await execa('claude', ['-p', `/${skill}`], {
+    // Skills are invoked via /skill-name with -p (print) flag
+    // Use --dangerously-skip-permissions to allow automated execution without prompts
+    const result = await execa('claude', [
+      '-p',
+      '--dangerously-skip-permissions',
+      `/${skill}`,
+    ], {
       cwd: workspaceDir,
       timeout,
       reject: false,
