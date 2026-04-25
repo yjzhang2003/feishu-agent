@@ -97,8 +97,8 @@ export function checkGitHub(): ComponentStatus {
   // gh auth status outputs to both stdout and stderr
   const output = result.stdout + result.stderr;
 
-  // Extract username
-  const match = output.match(/Logged in to github\.com as (\S+)/);
+  // Extract username - match "Logged in to github.com account xxx" format
+  const match = output.match(/Logged in to github\.com account (\S+)/);
   if (match) {
     return { name: 'GitHub', configured: true, message: `Authenticated as ${match[1]}` };
   }
