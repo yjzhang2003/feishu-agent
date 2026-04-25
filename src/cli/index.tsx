@@ -6,6 +6,7 @@ import { SelectList } from './components/SelectList.js';
 import { Header } from './components/Header.js';
 import { Footer } from './components/Footer.js';
 import { QrScreen } from './components/QrScreen.js';
+import { GitHubScreen } from './components/GitHubScreen.js';
 import { getAllStatuses, ComponentStatus } from './hooks/useStatus.js';
 import {
   getClaudeApiKey,
@@ -18,7 +19,7 @@ import {
 import { RegisterResult } from '../feishu/qr-register.js';
 import { execa } from 'execa';
 
-type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'ecc' | 'qr';
+type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'ecc' | 'qr' | 'github-auth';
 
 const components = ['claude', 'feishu', 'github', 'ecc'] as const;
 const componentNames = ['Claude Code', 'Feishu', 'GitHub', 'ECC'];
@@ -63,7 +64,7 @@ function App() {
 
   // 子页面键盘监听
   useInput(async (input, key) => {
-    if (screen === 'main' || screen === 'qr') return;
+    if (screen === 'main' || screen === 'qr' || screen === 'github-auth') return;
 
     // 输入模式
     if (inputMode) {
@@ -159,6 +160,22 @@ function App() {
         }}
         onCancel={() => {
           setScreen('feishu');
+        }}
+      />
+    );
+  }
+
+  // 渲染 GitHub OAuth 页面
+  if (screen === 'github-auth') {
+    return (
+      <GitHubScreen
+        onSuccess={() => {
+          setMessage(chalk.green('✓ GitHub authenticated'));
+          setScreen('github');
+          refreshStatuses();
+        }}
+        onCancel={() => {
+          setScreen('github');
         }}
       />
     );
@@ -320,13 +337,7 @@ async function executeAction(
   // GitHub actions
   if (screen === 'github') {
     if (option.key === 'login') {
-      try {
-        await execa('gh', ['auth', 'login', '--git-protocol', 'https', '--web'], { stdio: 'inherit' });
-        setMessage(chalk.green('✓ GitHub authenticated'));
-        refreshStatuses();
-      } catch (error) {
-        setMessage(chalk.red(`✗ Login failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
-      }
+      setScreen('github-auth');
     } else if (option.key === 'logout') {
       try {
         await execa('gh', ['auth', 'logout', '--hostname', 'github.com']);
