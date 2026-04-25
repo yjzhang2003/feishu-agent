@@ -1,6 +1,6 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { writeTrigger } from '../trigger/trigger.js';
-import { invokeClaudeSkill } from '../trigger/invoker.js';
+import { invokeClaudeSkill, invokeClaudeChat } from '../trigger/invoker.js';
 import { env } from '../config/env.js';
 import { log } from '../utils/logger.js';
 
@@ -87,6 +87,7 @@ export class FeishuWebSocket {
       }
 
       const chatId = message.chat_id;
+      const chatType = message.chat_type;
       const senderOpenId = sender.sender_id?.open_id || '';
 
       if (!senderOpenId) {
@@ -115,8 +116,8 @@ export class FeishuWebSocket {
         return;
       }
 
-      // Regular message - trigger chat skill
-      await this.handleChatMessage(chatId, text, senderOpenId);
+      // Regular message - invoke Claude directly
+      await this.handleChatMessage(chatId, chatType, text, senderOpenId);
     } catch (error) {
       log.error('feishu', 'Error handling message', { error: String(error) });
     }
@@ -192,36 +193,25 @@ export class FeishuWebSocket {
 Or just send a message to chat with Claude Code!`);
   }
 
-  private async handleChatMessage(chatId: string, text: string, senderOpenId: string): Promise<void> {
-    // Send typing indicator
-    await this.sendTextMessage(chatId, '🤔 Thinking...');
+  private async handleChatMessage(chatId: string, chatType: string, text: string, senderOpenId: string): Promise<void> {
+    log.info('chat', 'Processing message', { chatId, text: text.slice(0, 50) });
 
-    // Write trigger for chat skill
-    writeTrigger({
-      context: text,
-      source: 'feishu-chat',
-      timestamp: new Date().toISOString(),
-      metadata: {
-        chat_id: chatId,
-        sender_open_id: senderOpenId,
-        message: text,
-      },
-    });
-
-    // Invoke chat skill
-    log.skill('chat', 'start', { chatId });
-    invokeClaudeSkill({ skill: 'chat' })
-      .then(async (result) => {
+    // Invoke Claude directly with chat context
+    invokeClaudeChat({
+      message: text,
+      chatId,
+      chatType,
+      senderOpenId,
+    })
+      .then((result) => {
         if (result.success) {
-          log.skill('chat', 'success', { chatId });
+          log.info('chat', 'Claude responded', { chatId });
         } else {
-          log.skill('chat', 'error', { chatId, error: result.stderr });
-          await this.sendTextMessage(chatId, `❌ Error: ${result.stderr || 'Unknown error'}`);
+          log.error('chat', 'Claude failed', { error: result.stderr });
         }
       })
-      .catch(async (err) => {
-        log.error('chat', 'Skill failed', { error: String(err) });
-        await this.sendTextMessage(chatId, '❌ Failed to process your message. Please try again.');
+      .catch((err) => {
+        log.error('chat', 'Chat failed', { error: String(err) });
       });
   }
 
