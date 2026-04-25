@@ -132,16 +132,20 @@ export class FeishuWebSocket {
    */
   private async sendAckReaction(messageId: string): Promise<void> {
     try {
-      // Use lark-cli to add reaction with proper params format
-      const { execa } = await import('execa');
-      await execa('lark-cli', [
-        'im', 'reactions', 'create',
-        '--params', JSON.stringify({ message_id: messageId }),
-        '--data', JSON.stringify({ reaction_type: { emoji_type: 'OK' } }),
-      ], {
-        timeout: 5000,
-        reject: false,
+      const response = await this.client.im.v1.messageReaction.create({
+        data: {
+          reaction_type: {
+            emoji_type: 'OK',
+          },
+        },
+        path: {
+          message_id: messageId,
+        },
       });
+
+      if (response.code !== 0) {
+        log.debug('feishu', 'ACK reaction response', { code: response.code, msg: response.msg });
+      }
     } catch (error) {
       // Non-critical - don't block on failure
       log.debug('feishu', 'Failed to send ACK reaction', { error: String(error) });
