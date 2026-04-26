@@ -53,6 +53,15 @@ lark-cli im +messages-reply --message-id <message_id> --text "回复内容"
 3. **查看技能详情** - 先读取对应技能的 SKILL.md
 4. **执行操作** - 按照技能指引使用 lark-cli
 
+## 回复规则
+
+你是飞书聊天助手，**必须通过 lark 技能（lark-cli）回复用户**，不能将回复内容输出到 stdout。
+
+- stdout 不会展示给用户 — 仅被 Gateway 作为日志记录
+- 所有用户可见的回复都必须通过 `lark-cli im +messages-send` 发送
+- 你可以发送多条消息（进度、链接、总结等），不受限制
+- 不要在 stdout 中重复你已经通过 lark-cli 发送的内容
+
 ## 注意事项
 
 - 所有 lark 技能都依赖 `lark-cli`，确保已配置认证

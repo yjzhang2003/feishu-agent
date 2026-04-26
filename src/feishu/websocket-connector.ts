@@ -10,11 +10,16 @@ export interface FeishuWebSocketConfig {
   domain?: lark.Domain;
 }
 
+const MAX_DEDUP_SET_SIZE = 1000;
+const DEDUP_RETAIN_COUNT = 500;
+
 export class FeishuWebSocket {
   private client: lark.Client;
   private wsClient: lark.WSClient | null = null;
   private config: FeishuWebSocketConfig;
   private connected = false;
+  private processedMessageIds = new Set<string>();
+  private inFlightChats = new Map<string, Promise<void>>();
 
   constructor(config: FeishuWebSocketConfig) {
     this.config = config;
@@ -96,11 +101,23 @@ export class FeishuWebSocket {
         return;
       }
 
+      // Dedup: skip already-processed messages
+      if (this.processedMessageIds.has(messageId)) {
+        log.debug('feishu', 'Duplicate message, skipping', { messageId });
+        return;
+      }
+      this.processedMessageIds.add(messageId);
+      // Evict oldest entries when set grows too large
+      if (this.processedMessageIds.size > MAX_DEDUP_SET_SIZE) {
+        const entries = [...this.processedMessageIds];
+        this.processedMessageIds = new Set(entries.slice(-DEDUP_RETAIN_COUNT));
+      }
+
       // Log incoming message
       log.messageIn(chatId, senderOpenId, text, msgType);
 
-      // Send ACK emoji reaction immediately (like Hermes)
-      await this.sendAckReaction(messageId);
+      // Send ACK emoji reaction immediately (non-blocking)
+      this.sendAckReaction(messageId).catch(() => {});
 
       // Handle commands
       if (text.startsWith('/repair') || text.startsWith('/fix')) {
@@ -121,7 +138,7 @@ export class FeishuWebSocket {
       }
 
       // Regular message - invoke Claude directly
-      await this.handleChatMessage(chatId, chatType, text, senderOpenId);
+      await this.handleChatMessage(chatId, chatType, text, senderOpenId, messageId);
     } catch (error) {
       log.error('feishu', 'Error handling message', { error: String(error) });
     }
@@ -135,7 +152,7 @@ export class FeishuWebSocket {
       const response = await this.client.im.v1.messageReaction.create({
         data: {
           reaction_type: {
-            emoji_type: 'OK',
+            emoji_type: 'Get',
           },
         },
         path: {
@@ -222,22 +239,28 @@ export class FeishuWebSocket {
 Or just send a message to chat with Claude Code!`);
   }
 
-  private async handleChatMessage(chatId: string, chatType: string, text: string, senderOpenId: string): Promise<void> {
+  private async handleChatMessage(chatId: string, chatType: string, text: string, senderOpenId: string, messageId: string): Promise<void> {
+    // Per-chat concurrency lock: reject if Claude is already processing for this chat
+    if (this.inFlightChats.has(chatId)) {
+      log.warn('chat', 'Message rejected — Claude already processing for this chat', { chatId });
+      await this.sendTextMessage(chatId, '⏳ 上一条消息还在处理中，请稍等');
+      return;
+    }
+
     log.info('chat', 'Processing message', { chatId, text: text.slice(0, 50) });
 
-    invokeClaudeChat({
+    const invokePromise = invokeClaudeChat({
       message: text,
       chatId,
       chatType,
       senderOpenId,
+      messageId,
     })
       .then(async (result) => {
-        if (result.success && result.stdout.trim()) {
-          log.info('chat', 'Claude responded', { chatId });
-          await this.sendMarkdownMessage(chatId, result.stdout.trim());
-        } else if (result.success) {
-          await this.sendTextMessage(chatId, '（Claude 未返回内容）');
-        } else {
+        // Log stdout for debugging (never forward to user)
+        log.claudeLog(chatId, result.stdout);
+
+        if (!result.success) {
           log.error('chat', 'Claude failed', { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout.slice(0, 200) });
           await this.sendTextMessage(chatId, `❌ Claude 调用失败 (exit ${result.exitCode}): ${(result.stderr || result.stdout).slice(0, 200)}`);
         }
@@ -245,7 +268,35 @@ Or just send a message to chat with Claude Code!`);
       .catch(async (err) => {
         log.error('chat', 'Chat failed', { error: String(err) });
         await this.sendTextMessage(chatId, `❌ 处理失败: ${String(err).slice(0, 200)}`);
+      })
+      .finally(() => {
+        this.inFlightChats.delete(chatId);
+        // Send completion reaction regardless of success/failure
+        this.sendCompletionReaction(messageId).catch(() => {});
       });
+
+    this.inFlightChats.set(chatId, invokePromise);
+    invokePromise.catch(() => {}); // Prevent unhandled rejection on fire-and-forget promise
+  }
+
+  /**
+   * Send completion OK reaction to indicate processing finished
+   */
+  private async sendCompletionReaction(messageId: string): Promise<void> {
+    try {
+      await this.client.im.v1.messageReaction.create({
+        data: {
+          reaction_type: {
+            emoji_type: 'OK',
+          },
+        },
+        path: {
+          message_id: messageId,
+        },
+      });
+    } catch (error) {
+      log.debug('feishu', 'Failed to send completion reaction', { error: String(error) });
+    }
   }
 
   async sendTextMessage(chatId: string, text: string): Promise<void> {

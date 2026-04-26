@@ -37,11 +37,13 @@ class Logger {
   private config: LoggerConfig;
   private messageLogPath: string;
   private systemLogPath: string;
+  private claudeLogPath: string;
 
   constructor(config: Partial<LoggerConfig> = {}) {
     this.config = { ...defaultConfig, ...config };
     this.messageLogPath = resolve(this.config.logDir, 'messages.log');
     this.systemLogPath = resolve(this.config.logDir, 'system.log');
+    this.claudeLogPath = resolve(this.config.logDir, 'claude.log');
 
     if (this.config.enableFile && !existsSync(this.config.logDir)) {
       mkdirSync(this.config.logDir, { recursive: true });
@@ -159,6 +161,33 @@ class Logger {
     const emoji = action === 'start' ? '🚀' : action === 'success' ? '✅' : '❌';
     this.log(action === 'error' ? 'error' : 'info', 'skill', `${emoji} ${skillName}`, data);
   }
+
+  /**
+   * Log structured stdout from Claude process
+   */
+  claudeLog(chatId: string, stdout: string): void {
+    if (!this.config.enableFile || !stdout.trim()) return;
+
+    const timestamp = new Date().toISOString();
+    const lines = stdout.split('\n');
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        parsed = { raw: line };
+      }
+
+      const entry = `[${timestamp}] [claude] chat=${chatId} ${JSON.stringify(parsed)}\n`;
+      try {
+        appendFileSync(this.claudeLogPath, entry);
+      } catch {
+        // Silently fail
+      }
+    }
+  }
 }
 
 // Singleton instance
@@ -174,4 +203,5 @@ export const log = {
   messageOut: (chatId: string, content: string, msgType?: string) => logger.messageOut(chatId, content, msgType),
   command: (chatId: string, command: string, args?: string) => logger.command(chatId, command, args),
   skill: (skillName: string, action: 'start' | 'success' | 'error', data?: Record<string, unknown>) => logger.skill(skillName, action, data),
+  claudeLog: (chatId: string, stdout: string) => logger.claudeLog(chatId, stdout),
 };

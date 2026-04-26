@@ -21,6 +21,7 @@ export interface ChatContext {
   chatId: string;
   senderOpenId: string;
   chatType: string;
+  messageId?: string;
 }
 
 // Read .env from workspace/.claude/.env and return as env vars object
@@ -115,14 +116,15 @@ export async function invokeClaudeChat(context: ChatContext, timeout: number = 3
     FEISHU_CHAT_ID: context.chatId,
     FEISHU_SENDER_OPEN_ID: context.senderOpenId,
     FEISHU_CHAT_TYPE: context.chatType,
+    ...(context.messageId ? { FEISHU_MESSAGE_ID: context.messageId } : {}),
   };
 
   // Generate a session ID based on chat ID for conversation continuity
   const sessionId = chatIdToSessionUuid(context.chatId);
 
-  // Pass the user message directly — do NOT prepend "用户消息:" or echo context
-  // The chat skill reads FEISHU_CHAT_ID and FEISHU_SENDER_OPEN_ID from env vars
-  const prompt = context.message;
+  // Prepend lark-nav reference so Claude knows to reply via lark-cli
+  // lark-nav contains the rule: must use lark-cli to reply, stdout is not shown to user
+  const prompt = `回复用户前请阅读 lark-nav 技能了解回复规则。\n\n${context.message}`;
 
   try {
     const workspaceEnv = loadWorkspaceEnv();
