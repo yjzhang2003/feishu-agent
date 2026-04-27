@@ -8,9 +8,9 @@ import { SessionAddFlow } from './flows/session-add-flow.js';
 import { log } from '../../utils/logger.js';
 
 export interface CardActionPayload {
-  open_id: string;
-  open_message_id: string;
-  open_chat_id: string;
+  messageId: string;
+  chatId: string;
+  operator?: { openId?: string; userId?: string; name?: string };
   action: {
     value: Record<string, unknown>;
     tag: string;
@@ -35,7 +35,8 @@ export class CardDispatcher {
   }
 
   async dispatch(payload: CardActionPayload): Promise<CardActionResponse> {
-    const { open_chat_id: chatId, open_id: senderOpenId, action } = payload;
+    const { chatId, operator, action } = payload;
+    const senderOpenId = operator?.openId || '';
     const actionValue = action.value?.action as string || '';
     const [, actionName] = actionValue.split(':');
 
@@ -56,7 +57,7 @@ export class CardDispatcher {
       }
 
       if (actionValue.startsWith('session:')) {
-        return this.handleSessionAction(actionName, chatId, payload);
+        return this.handleSessionAction(actionName, chatId, payload, senderOpenId);
       }
 
       // Unknown action
@@ -107,7 +108,7 @@ export class CardDispatcher {
   }
 
   private handleServiceAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
-    const senderOpenId = payload.open_id;
+    const senderOpenId = payload.operator?.openId || '';
 
     switch (action) {
       case 'add-start':
@@ -144,8 +145,7 @@ export class CardDispatcher {
     }
   }
 
-  private handleSessionAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
-    const senderOpenId = payload.open_id;
+  private handleSessionAction(action: string, chatId: string, payload: CardActionPayload, senderOpenId: string): CardActionResponse {
     log.info('dispatcher', 'Session action', { chatId, action });
 
     switch (action) {
