@@ -442,9 +442,20 @@ async function executeAction(
         setQrDeviceCode('');
 
         if (result.success) {
-          setMessage(chalk.green('✓ Authentication successful!'));
+          setMessage(chalk.green('✓ Authentication successful! Restarting service...'));
           setScreen('feishu');
           refreshStatuses();
+          // Restart service to pick up new credentials
+          try {
+            await execa('pm2', ['restart', 'oh-my-feishu']);
+          } catch {
+            // Service might not be running, try start instead
+            try {
+              await execa('pm2', ['start', 'ecosystem.config.cjs']);
+            } catch {
+              // Ignore - service might not exist yet
+            }
+          }
         } else if (result.error === 'expired') {
           setMessage(chalk.red('✗ QR code expired. Please try again.'));
           setScreen('feishu');
@@ -475,9 +486,19 @@ async function executeAction(
       });
 
       if (result.success) {
-        setMessage(chalk.green('✓ Lark CLI configured successfully'));
+        setMessage(chalk.green('✓ Lark CLI configured successfully. Restarting service...'));
         setScreen('feishu');
         refreshStatuses();
+        // Restart service to pick up new credentials
+        try {
+          await execa('pm2', ['restart', 'oh-my-feishu']);
+        } catch {
+          try {
+            await execa('pm2', ['start', 'ecosystem.config.cjs']);
+          } catch {
+            // Ignore - service might not exist yet
+          }
+        }
       } else {
         setMessage(chalk.red(`✗ ${result.error || 'Configuration failed'}`));
         setScreen('feishu');

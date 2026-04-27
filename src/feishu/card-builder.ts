@@ -83,14 +83,23 @@ export function createNavigationCard(options?: NavigationCardOptions): FeishuCar
     : '';
 
   return createCallbackCard({
-    title: '🤖 Feishu Agent 导航',
+    title: '🤖 欢迎使用 Feishu Agent',
     elements: [
-      md('欢迎使用 Feishu Agent！选择一个操作：'),
+      md('**👋 您好！我是 Feishu Agent。**'),
       md(''),
+      md('我可以帮你分析错误日志、自动修复问题、管理监控服务。直接发送消息即可与我对话！'),
+      md(''),
+      md('**📌 快速操作**'),
       md('**🛠️ 自动修复** - 分析错误日志并自动修复'),
       md('**📋 服务管理** - 管理 traceback 监控服务'),
       md('**📊 系统状态** - 查看服务状态'),
       md('**❓ 帮助** - 查看所有命令'),
+      md(''),
+      md('💡 **提示**：发送 `/菜单` 可随时调出此菜单'),
+      md(''),
+      md('---'),
+      md('**📬 事件订阅（可选）**'),
+      md('如果在[飞书开放平台](https://open.feishu.cn)开启了 `im.chat.access_event.bot_p2p_chat_entered_v1` 事件订阅，每次进入会话时菜单会自动打开。'),
     ],
     buttons: [
       { text: '🛠️ 自动修复', action: 'nav:repair', type: 'primary' },

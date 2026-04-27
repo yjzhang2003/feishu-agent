@@ -167,6 +167,27 @@ export async function invokeClaudeChat(context: ChatContext, timeout: number = 3
       env: { ...process.env, ...workspaceEnv, ...contextEnv },
     });
 
+    // If session not found, retry without --resume (session may have been lost after re-auth)
+    if (result.stderr?.includes('No conversation found with session ID')) {
+      const retryResult = await execa('claude', [
+        '-p',
+        '--dangerously-skip-permissions',
+        prompt,
+      ], {
+        cwd: workspaceDir,
+        timeout,
+        reject: false,
+        stdin: 'ignore',
+        env: { ...process.env, ...workspaceEnv, ...contextEnv },
+      });
+      return {
+        success: retryResult.exitCode === 0,
+        stdout: retryResult.stdout,
+        stderr: retryResult.stderr,
+        exitCode: retryResult.exitCode ?? 1,
+      };
+    }
+
     return {
       success: result.exitCode === 0,
       stdout: result.stdout,

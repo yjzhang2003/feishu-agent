@@ -8,6 +8,7 @@ import { RepairCommand } from './commands/repair-command.js';
 import { StatusCommand } from './commands/status-command.js';
 import { ServiceCommand } from './commands/service-command.js';
 import { HelpCommand } from './commands/help-command.js';
+import { MenuCommand } from './commands/menu-command.js';
 import { createNavigationCard } from './card-builder.js';
 import { listServices } from '../service/registry.js';
 
@@ -58,6 +59,7 @@ export class FeishuWebSocket {
     this.commandRegistry.register(new StatusCommand());
     this.commandRegistry.register(new ServiceCommand());
     this.commandRegistry.register(new HelpCommand());
+    this.commandRegistry.register(new MenuCommand());
 
     // Create sendMessage interface for MessageRouter
     const sendMessage: SendMessageFn = {

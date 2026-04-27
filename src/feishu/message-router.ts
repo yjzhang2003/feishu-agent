@@ -115,12 +115,8 @@ export class MessageRouter {
       args,
       connected: this.sendMessage.isConnected(),
       sendText: (text: string) => this.sendMessage.sendTextMessage(chatId, text),
-      sendCard: (card: { title: string; elements: string[] }) =>
-        this.sendMessage.sendCardMessage(chatId, {
-          config: { wide_screen_mode: true, enable_forward: true },
-          header: { title: { tag: 'plain_text', content: card.title }, template: 'blue' },
-          elements: card.elements.map((e: string) => ({ tag: 'markdown', content: e })),
-        }),
+      sendCard: (card: object) =>
+        this.sendMessage.sendCardMessage(chatId, card),
     };
 
     log.command(chatId, command, args.join(' '));

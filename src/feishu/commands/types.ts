@@ -10,7 +10,7 @@ export interface CommandContext {
   args: string[];
   connected?: boolean;
   sendText: (text: string) => Promise<void>;
-  sendCard: (card: { title: string; elements: string[] }) => Promise<void>;
+  sendCard: (card: object) => Promise<void>;
 }
 
 export interface CommandHandler {

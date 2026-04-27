@@ -36,7 +36,7 @@ describe('CardBuilder', () => {
 
   test('createNavigationCard has correct structure', () => {
     const card = createNavigationCard();
-    expect(card.header?.title.content).toBe('🤖 Feishu Agent 导航');
+    expect(card.header?.title.content).toBe('🤖 欢迎使用 Feishu Agent');
     expect(card.elements.length).toBeGreaterThan(0);
   });
 
