@@ -72,7 +72,7 @@ export function createCallbackCard(options: {
 }
 
 // Markdown element helper
-function md(content: string): CardElement {
+export function md(content: string): CardElement {
   return { tag: 'markdown', content };
 }
 

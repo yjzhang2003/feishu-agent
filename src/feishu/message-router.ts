@@ -197,7 +197,40 @@ export class MessageRouter {
     senderOpenId: string,
     flow: string
   ): Promise<void> {
-    // This will be connected to flow handlers later
     log.info('flow', 'Flow input received', { chatId, flow, text });
+
+    if (flow === 'session-add-step1') {
+      // Handle directory session creation
+      await this.handleSessionAddInput(chatId, text, senderOpenId);
+      return;
+    }
+
+    // Other flows handled elsewhere
+  }
+
+  private async handleSessionAddInput(chatId: string, directory: string, senderOpenId: string): Promise<void> {
+    const trimmedDir = directory.trim();
+
+    if (!trimmedDir) {
+      await this.sendMessage.sendTextMessage(chatId, '❌ 目录路径不能为空');
+      return;
+    }
+
+    if (!trimmedDir.startsWith('/') && !trimmedDir.startsWith('./') && !trimmedDir.startsWith('../')) {
+      await this.sendMessage.sendTextMessage(chatId, '❌ 请输入有效路径（绝对路径或相对路径）');
+      return;
+    }
+
+    // Set session mode to directory and store the directory
+    this.sessionStore.set(chatId, {
+      flow: 'none',
+      mode: 'directory',
+      data: { directory: trimmedDir },
+    });
+
+    // Send success message
+    await this.sendMessage.sendTextMessage(chatId, `✅ 目录会话已创建\n\n📁 目录: ${trimmedDir}\n\nClaude 进程将在该目录中启动。\n\n💡 发送消息开始对话`);
+
+    log.info('flow', 'Directory session created from Feishu', { chatId, directory: trimmedDir });
   }
 }

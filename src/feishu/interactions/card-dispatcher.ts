@@ -4,6 +4,7 @@
 
 import { SessionStore } from './session-store.js';
 import { ServiceAddFlow, type SendCardFn } from './flows/service-add-flow.js';
+import { SessionAddFlow } from './flows/session-add-flow.js';
 import { log } from '../../utils/logger.js';
 
 export interface CardActionPayload {
@@ -23,16 +24,18 @@ export interface CardActionResponse {
 
 export class CardDispatcher {
   private serviceAddFlow: ServiceAddFlow;
+  private sessionAddFlow: SessionAddFlow;
 
   constructor(
     private sessionStore: SessionStore,
     sendCard: SendCardFn
   ) {
     this.serviceAddFlow = new ServiceAddFlow(sessionStore, sendCard);
+    this.sessionAddFlow = new SessionAddFlow(sessionStore, sendCard);
   }
 
   async dispatch(payload: CardActionPayload): Promise<CardActionResponse> {
-    const { open_chat_id: chatId, action } = payload;
+    const { open_chat_id: chatId, open_id: senderOpenId, action } = payload;
     const actionValue = action.value?.action as string || '';
     const [, actionName] = actionValue.split(':');
 
@@ -142,19 +145,22 @@ export class CardDispatcher {
   }
 
   private handleSessionAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
+    const senderOpenId = payload.open_id;
     log.info('dispatcher', 'Session action', { chatId, action });
 
     switch (action) {
       case 'direct':
-        this.sessionStore.set(chatId, { mode: 'direct' });
+        this.sessionStore.set(chatId, { mode: 'direct', flow: 'none' });
         return {
           toast: { type: 'success', content: '✅ 已切换到直接对话模式' },
         };
       case 'directory':
-        this.sessionStore.set(chatId, { mode: 'directory' });
-        return {
-          toast: { type: 'info', content: '📁 请在 CLI 中运行: ohmyfeishu session new <目录>' },
-        };
+        // Start directory input flow
+        this.sessionAddFlow.start(chatId, senderOpenId);
+        return {};
+      case 'add-cancel':
+        this.sessionAddFlow.cancel(chatId);
+        return {};
       case 'list':
         // List active sessions
         return {

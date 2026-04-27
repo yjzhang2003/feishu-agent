@@ -8,7 +8,8 @@ export type InteractionFlow =
   | 'service-add-step1'
   | 'service-add-step2'
   | 'service-add-step3'
-  | 'repair-context';
+  | 'repair-context'
+  | 'session-add-step1';
 
 export type SessionMode = 'direct' | 'directory';
 
