@@ -41,6 +41,28 @@ npm start
 
 用飞书扫码，即开即用。
 
+## CLI 命令
+
+安装为全局命令后，可以在任意目录启动：
+
+```bash
+# 安装 CLI
+npm link
+
+# 在指定目录创建飞书会话
+ohmyfeishu session new ./my-project
+
+# 查看帮助
+ohmyfeishu help
+```
+
+创建会话后，oh-my-feishu 会自动：
+1. 将所有 skills 作为 plugin 安装到 `./my-project/.claude/settings.json`
+2. 在该目录下启动 Claude Code 子进程
+3. 通过 Gateway 将飞书消息转发给 Claude Code
+
+这样你可以在任意 Claude Code 项目中，通过飞书与它对话！
+
 ## 工作原理
 
 每条飞书消息都经过 Gateway：

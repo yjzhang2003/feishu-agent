@@ -4,7 +4,8 @@
   "description": "The best way to use Claude Code on Feishu",
   "type": "module",
   "bin": {
-    "oh-my-feishu": "./dist/cli/index.js"
+    "oh-my-feishu": "./dist/cli/index.js",
+    "ohmyfeishu": "./dist/cli/cli.js"
   },
   "scripts": {
     "cli": "tsx src/cli/index.tsx",
