@@ -52,6 +52,10 @@ export class CardDispatcher {
         return this.handleRepairAction(actionName, chatId, payload);
       }
 
+      if (actionValue.startsWith('session:')) {
+        return this.handleSessionAction(actionName, chatId, payload);
+      }
+
       // Unknown action
       return {
         toast: { type: 'error', content: '未知操作' },
@@ -133,6 +137,32 @@ export class CardDispatcher {
       default:
         return {
           toast: { type: 'error', content: '未知修复操作' },
+        };
+    }
+  }
+
+  private handleSessionAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
+    log.info('dispatcher', 'Session action', { chatId, action });
+
+    switch (action) {
+      case 'direct':
+        // Gateway direct mode - existing behavior
+        return {
+          toast: { type: 'info', content: '💬 直接对话模式 - 发送消息开始对话' },
+        };
+      case 'directory':
+        // Directory session mode - guide user to CLI
+        return {
+          toast: { type: 'info', content: '📁 目录会话模式 - 请在 CLI 中运行: ohmyfeishu session new <目录>' },
+        };
+      case 'list':
+        // List active sessions
+        return {
+          toast: { type: 'info', content: '📋 正在查询会话列表...' },
+        };
+      default:
+        return {
+          toast: { type: 'error', content: '未知会话操作' },
         };
     }
   }

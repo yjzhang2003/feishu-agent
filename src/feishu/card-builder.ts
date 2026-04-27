@@ -78,10 +78,6 @@ function md(content: string): CardElement {
 
 // Navigation card - shown when user first enters chat
 export function createNavigationCard(options?: NavigationCardOptions): FeishuCard {
-  const serviceCountText = options?.showServiceCount !== undefined
-    ? ` (${options.showServiceCount} registered)`
-    : '';
-
   return createCallbackCard({
     title: '🤖 欢迎使用 Feishu Agent',
     elements: [
@@ -89,23 +85,22 @@ export function createNavigationCard(options?: NavigationCardOptions): FeishuCar
       md(''),
       md('我可以帮你分析错误日志、自动修复问题、管理监控服务。直接发送消息即可与我对话！'),
       md(''),
-      md('**📌 快速操作**'),
+      md('**📌 会话模式**'),
+      md('**💬 直接对话** - 在当前会话直接与 Claude 对话'),
+      md('**📁 目录会话** - 在指定项目目录启动 Claude 进程'),
+      md(''),
+      md('**📋 功能菜单**'),
       md('**🛠️ 自动修复** - 分析错误日志并自动修复'),
-      md('**📋 服务管理** - 管理 traceback 监控服务'),
-      md('**📊 系统状态** - 查看服务状态'),
+      md('**📊 服务管理** - 管理 traceback 监控服务'),
       md('**❓ 帮助** - 查看所有命令'),
       md(''),
       md('💡 **提示**：发送 `/菜单` 可随时调出此菜单'),
-      md(''),
-      md('---'),
-      md('**📬 事件订阅（可选）**'),
-      md('如果在[飞书开放平台](https://open.feishu.cn)开启了 `im.chat.access_event.bot_p2p_chat_entered_v1` 事件订阅，每次进入会话时菜单会自动打开。'),
     ],
     buttons: [
-      { text: '🛠️ 自动修复', action: 'nav:repair', type: 'primary' },
-      { text: '📋 服务管理', action: 'nav:service', type: 'default' },
-      { text: '📊 系统状态', action: 'nav:status', type: 'default' },
-      { text: '❓ 帮助', action: 'nav:help', type: 'default' },
+      { text: '💬 直接对话', action: 'session:direct', type: 'primary' },
+      { text: '📁 目录会话', action: 'session:directory', type: 'default' },
+      { text: '🛠️ 自动修复', action: 'nav:repair', type: 'default' },
+      { text: '📊 服务管理', action: 'nav:service', type: 'default' },
     ],
   });
 }

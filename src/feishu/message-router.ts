@@ -72,27 +72,27 @@ export class MessageRouter {
     // Send ACK emoji reaction immediately (non-blocking)
     this.sendMessage.sendAckReaction(messageId).catch(() => {});
 
-    // Check if user has received navigation card (send if first time)
-    const session = this.sessionStore.get(chatId);
-    if (!session.hasReceivedNav) {
-      const services = listServices();
-      await this.sendMessage.sendCardMessage(chatId, createNavigationCard({ showServiceCount: services.length }));
-      this.sessionStore.set(chatId, { hasReceivedNav: true });
-    }
-
-    // Check for active interaction flow
-    if (session.flow !== 'none') {
-      await this.handleFlowInput(chatId, text, senderOpenId, session.flow);
-      return;
-    }
-
-    // Check if it's a command
-    const commandMatch = text.match(/^(\/\w+)(?:\s+(.*))?$/s);
+    // Check if it's a command first - commands handle their own responses
+    const commandMatch = text.match(/^(\/\S+)(?:\s+(.*))?$/s);
     if (commandMatch) {
       const command = commandMatch[1];
       const args = commandMatch[2]?.trim().split(/\s+/) || [];
       await this.handleCommand(command, args, chatId, chatType, senderOpenId, messageId);
       return;
+    }
+
+    // Check for active interaction flow
+    const session = this.sessionStore.get(chatId);
+    if (session.flow !== 'none') {
+      await this.handleFlowInput(chatId, text, senderOpenId, session.flow);
+      return;
+    }
+
+    // Check if user has received navigation card (send if first time)
+    if (!session.hasReceivedNav) {
+      const services = listServices();
+      await this.sendMessage.sendCardMessage(chatId, createNavigationCard({ showServiceCount: services.length }));
+      this.sessionStore.set(chatId, { hasReceivedNav: true });
     }
 
     // Regular chat message
