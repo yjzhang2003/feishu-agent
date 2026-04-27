@@ -157,3 +157,51 @@ export function createRepairResultCard(options: {
     elements,
   });
 }
+
+export function createServiceRepairCard(options: {
+  serviceName: string;
+  success: boolean;
+  summary: string;
+  tracebackPreview?: string;
+  prUrl?: string;
+  files?: string[];
+}): FeishuCard {
+  const elements: CardElement[] = [
+    createMarkdownElement(`**Service:** ${options.serviceName}`),
+    createMarkdownElement(options.summary),
+  ];
+
+  if (options.tracebackPreview) {
+    elements.push(createDividerElement());
+    const truncated = options.tracebackPreview.length > 500
+      ? options.tracebackPreview.slice(0, 500) + '...'
+      : options.tracebackPreview;
+    elements.push(createMarkdownElement(`**Traceback:**\n\`\`\`\n${truncated}\n\`\`\``));
+  }
+
+  if (options.files && options.files.length > 0) {
+    elements.push(createDividerElement());
+    elements.push(createMarkdownElement('**Modified files:**'));
+    for (const file of options.files.slice(0, 10)) {
+      elements.push(createMarkdownElement(`- \`${file}\``));
+    }
+  }
+
+  if (options.prUrl) {
+    elements.push(createDividerElement());
+    elements.push(createActionElement([
+      createButtonElement({
+        text: '查看 PR / Review',
+        url: options.prUrl,
+        type: 'primary',
+      }),
+    ]));
+  }
+
+  return createCard({
+    title: options.success
+      ? `🛠️ ${options.serviceName} — Bug 自动修复完成`
+      : `❌ ${options.serviceName} — 修复失败`,
+    elements,
+  });
+}

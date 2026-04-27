@@ -8,6 +8,8 @@ import { FeishuWebSocket, loadLarkCliConfig } from './feishu/websocket-connector
 import { checkLarkConfig } from './feishu/lark-auth.js';
 import { checkClaudeCli } from './trigger/invoker.js';
 import { env } from './config/env.js';
+import { loadRegistry } from './service/registry.js';
+import { TracebackMonitor } from './monitor/traceback-monitor.js';
 
 function keepAlive(): void {
   // Keep the process alive with a no-op interval
@@ -62,9 +64,25 @@ async function main() {
 
   const ws = new FeishuWebSocket(config);
 
+  // Start traceback monitor if services are registered
+  let tracebackMonitor: TracebackMonitor | null = null;
+  const registry = loadRegistry();
+  const enabledServices = registry.services.filter(s => s.enabled);
+  if (enabledServices.length > 0) {
+    tracebackMonitor = new TracebackMonitor();
+    tracebackMonitor.start().catch((err) => {
+      console.error('⚠️  TracebackMonitor failed to start:', err);
+      tracebackMonitor = null;
+    });
+    console.log(`✅ TracebackMonitor: Monitoring ${enabledServices.length} service(s)`);
+  }
+
   // Handle graceful shutdown
   const shutdown = async () => {
     console.log('\n\n🛑 Shutting down...');
+    if (tracebackMonitor) {
+      tracebackMonitor.stop();
+    }
     await ws.disconnect();
     process.exit(0);
   };
@@ -76,7 +94,7 @@ async function main() {
     await ws.connect();
     console.log('✅ WebSocket connected successfully!');
     console.log('\n💬 Send a message in Feishu to start chatting with Claude Code.');
-    console.log('   Commands: /repair, /status, /help\n');
+    console.log('   Commands: /repair, /service, /status, /help\n');
     console.log('Press Ctrl+C to stop.\n');
   } catch (error) {
     console.error('❌ Failed to connect:', error);

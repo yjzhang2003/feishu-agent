@@ -15,8 +15,9 @@ import {
   renderQRAscii,
   type QRBeginResult,
 } from '../feishu/qr-onboarding.js';
+import { ServiceManageScreen } from './components/ServiceManageScreen.js';
 
-type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'service' | 'logs' | 'init' | 'qr';
+type Screen = 'main' | 'claude' | 'feishu' | 'github' | 'service' | 'service-manage' | 'logs' | 'init' | 'qr';
 
 const components = ['claude', 'feishu', 'github', 'service'] as const;
 const componentNames = ['Claude Code', 'Feishu (Lark)', 'GitHub', 'Service'];
@@ -71,6 +72,7 @@ function App() {
 
   useInput(async (input, key) => {
     if (screen === 'main') return;
+    if (screen === 'service-manage') return; // Handled by ServiceManageScreen component
 
     if (key.escape) {
       if (screen === 'logs') {
@@ -234,6 +236,15 @@ function App() {
     );
   }
 
+  if (screen === 'service-manage') {
+    return (
+      <ServiceManageScreen onBack={() => {
+        setScreen('service');
+        setMessage('');
+      }} />
+    );
+  }
+
   const { options, status } = getScreenConfig(screen, statuses, serviceStatus);
 
   return (
@@ -277,10 +288,12 @@ function getScreenConfig(screen: Screen, statuses: Record<string, ComponentStatu
             { key: 'stop', label: 'Stop Service', description: 'Stop the feishu-agent background service' },
             { key: 'restart', label: 'Restart Service', description: 'Restart the feishu-agent service' },
             { key: 'logs', label: 'View Logs', description: 'Open PM2 logs viewer' },
+            { key: 'manage', label: 'Manage Services', description: 'Register/unregister traceback monitoring services' },
             { key: 'back', label: 'Back', description: 'Return to main menu' },
           ]
         : [
             { key: 'start', label: 'Start Service', description: 'Start feishu-agent as background service', status: '★', statusColor: 'yellow' as const },
+            { key: 'manage', label: 'Manage Services', description: 'Register/unregister traceback monitoring services' },
             { key: 'back', label: 'Back', description: 'Return to main menu' },
           ],
     };
@@ -552,6 +565,8 @@ async function executeAction(
       setLogsOffset(0);
       setLogType('out');
       setScreen('logs');
+    } else if (option.key === 'manage') {
+      setScreen('service-manage');
     }
   }
 }

@@ -3,6 +3,7 @@ import { writeTrigger } from '../trigger/trigger.js';
 import { invokeClaudeSkill, invokeClaudeChat } from '../trigger/invoker.js';
 import { env } from '../config/env.js';
 import { log } from '../utils/logger.js';
+import { addService, removeService, listServices, updateService, type ServiceEntry } from '../service/registry.js';
 
 export interface FeishuWebSocketConfig {
   appId: string;
@@ -131,6 +132,12 @@ export class FeishuWebSocket {
         return;
       }
 
+      if (text.startsWith('/service')) {
+        log.command(chatId, '/service');
+        await this.handleServiceCommand(chatId, text, senderOpenId);
+        return;
+      }
+
       if (text.startsWith('/help')) {
         log.command(chatId, '/help');
         await this.handleHelpCommand(chatId);
@@ -219,20 +226,176 @@ export class FeishuWebSocket {
   private async handleStatusCommand(chatId: string): Promise<void> {
     const { checkClaudeCli } = await import('../trigger/invoker.js');
     const claudeStatus = await checkClaudeCli();
+    const services = listServices();
+    const enabledCount = services.filter(s => s.enabled).length;
 
     const statusText = `📊 System Status
 
 **Claude CLI:** ${claudeStatus.available ? `✅ ${claudeStatus.version}` : '❌ Not available'}
 **WebSocket:** ${this.connected ? '✅ Connected' : '❌ Disconnected'}
-**GitHub:** ${env.GITHUB_TOKEN ? '✅ Configured' : '❌ Not configured'}`;
+**GitHub:** ${env.GITHUB_TOKEN ? '✅ Configured' : '❌ Not configured'}
+**Services:** ${enabledCount} enabled / ${services.length} registered`;
 
     await this.sendTextMessage(chatId, statusText);
+  }
+
+  private async handleServiceCommand(chatId: string, text: string, senderOpenId: string): Promise<void> {
+    const parts = text.trim().split(/\s+/);
+    const subCommand = parts[1]?.toLowerCase();
+
+    switch (subCommand) {
+      case 'add': {
+        const [,,, name, repo, tracebackUrl] = parts;
+        if (!name || !repo || !tracebackUrl) {
+          await this.sendCardMessage(chatId, {
+            title: '❌ Invalid /service add',
+            elements: ['Usage: `/service add <name> <owner/repo> <traceback_url>`'],
+          });
+          return;
+        }
+
+        // Validate repo format: owner/repo
+        if (!/^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/.test(repo)) {
+          await this.sendCardMessage(chatId, {
+            title: '❌ Invalid repo format',
+            elements: ['Repo must be in `owner/repo` format (e.g. `myorg/my-api`)'],
+          });
+          return;
+        }
+
+        // Validate URL format
+        if (!/^https?:\/\/.+/.test(tracebackUrl)) {
+          await this.sendCardMessage(chatId, {
+            title: '❌ Invalid URL',
+            elements: ['Traceback URL must start with `http://` or `https://`'],
+          });
+          return;
+        }
+
+        const [githubOwner, githubRepo] = repo.split('/');
+
+        try {
+          addService({
+            name,
+            githubOwner,
+            githubRepo,
+            tracebackUrl,
+            notifyChatId: chatId,
+            tracebackUrlType: 'json',
+            enabled: true,
+            addedAt: new Date().toISOString(),
+            addedBy: senderOpenId,
+          });
+
+          await this.sendCardMessage(chatId, {
+            title: '✅ Service Registered',
+            elements: [
+              `**Name:** ${name}`,
+              `**Repo:** ${repo}`,
+              `**Traceback URL:** ${tracebackUrl}`,
+              `**Notify chat:** ${chatId}`,
+              '',
+              'TracebackMonitor will poll this service for new errors.',
+            ],
+          });
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : 'Unknown error';
+          await this.sendCardMessage(chatId, {
+            title: '❌ Failed to add service',
+            elements: [msg],
+          });
+        }
+        break;
+      }
+
+      case 'remove': {
+        const name = parts[2];
+        if (!name) {
+          await this.sendCardMessage(chatId, {
+            title: '❌ Invalid /service remove',
+            elements: ['Usage: `/service remove <name>`'],
+          });
+          return;
+        }
+
+        const removed = removeService(name);
+        await this.sendCardMessage(chatId, {
+          title: removed ? '✅ Service Removed' : '❌ Service Not Found',
+          elements: [removed ? `Service "${name}" has been removed.` : `Service "${name}" is not registered.`],
+        });
+        break;
+      }
+
+      case 'list': {
+        const services = listServices();
+        if (services.length === 0) {
+          await this.sendCardMessage(chatId, {
+            title: '📋 Service Registry',
+            elements: ['No services registered. Use `/service add` to register one.'],
+          });
+          return;
+        }
+
+        const serviceLines = services.map(s =>
+          `- **${s.name}** \`${s.githubOwner}/${s.githubRepo}\` ${s.enabled ? '🟢' : '🔴'} ${s.lastCheckedAt ? `last: ${s.lastCheckedAt}` : ''}`
+        );
+
+        await this.sendCardMessage(chatId, {
+          title: `📋 Service Registry (${services.length})`,
+          elements: serviceLines,
+        });
+        break;
+      }
+
+      case 'enable':
+      case 'disable': {
+        const name = parts[2];
+        if (!name) {
+          await this.sendCardMessage(chatId, {
+            title: `❌ Invalid /service ${subCommand}`,
+            elements: [`Usage: \`/service ${subCommand} <name>\``],
+          });
+          return;
+        }
+
+        const updated = updateService(name, { enabled: subCommand === 'enable' });
+        if (updated) {
+          await this.sendCardMessage(chatId, {
+            title: `✅ Service ${subCommand === 'enable' ? 'Enabled' : 'Disabled'}`,
+            elements: [`Service "${name}" is now ${subCommand === 'enable' ? 'enabled' : 'disabled'}.`],
+          });
+        } else {
+          await this.sendCardMessage(chatId, {
+            title: '❌ Service Not Found',
+            elements: [`Service "${name}" is not registered.`],
+          });
+        }
+        break;
+      }
+
+      default:
+        await this.sendCardMessage(chatId, {
+          title: '📋 Service Commands',
+          elements: [
+            '`/service add <name> <owner/repo> <traceback_url>`',
+            '`/service remove <name>`',
+            '`/service list`',
+            '`/service enable <name>`',
+            '`/service disable <name>`',
+          ],
+        });
+    }
   }
 
   private async handleHelpCommand(chatId: string): Promise<void> {
     await this.sendTextMessage(chatId, `🤖 Feishu Agent Commands
 
 /repair [context] - Start auto-repair with optional context
+/service add <name> <owner/repo> <traceback_url> - Register a service
+/service remove <name> - Remove a service
+/service list - List registered services
+/service enable <name> - Enable service monitoring
+/service disable <name> - Disable service monitoring
 /status - Check system status
 /help - Show this help message
 

@@ -8,3 +8,5 @@ export * from './feishu/lark-auth.js';
 export * from './feishu/websocket-connector.js';
 export * from './trigger/trigger.js';
 export * from './trigger/invoker.js';
+export * from './service/registry.js';
+export * from './monitor/traceback-monitor.js';

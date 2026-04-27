@@ -3,6 +3,8 @@ import { resolve } from 'path';
 import { env } from '../config/env.js';
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { createHash } from 'crypto';
+import { readTrigger } from './trigger.js';
+import { getService } from '../service/registry.js';
 
 export interface InvokeOptions {
   skill: string;
@@ -46,6 +48,29 @@ function loadWorkspaceEnv(): Record<string, string> {
   return vars;
 }
 
+// Read service-specific env vars from the trigger's service_name field
+function loadServiceEnv(): Record<string, string> {
+  const vars: Record<string, string> = {};
+
+  try {
+    const trigger = readTrigger();
+    if (trigger?.service_name) {
+      const service = getService(trigger.service_name);
+      if (service) {
+        vars.GITHUB_REPO_OWNER = service.githubOwner;
+        vars.GITHUB_REPO_NAME = service.githubRepo;
+        vars.TRACEBACK_URL = service.tracebackUrl;
+        vars.SERVICE_NAME = service.name;
+        vars.NOTIFY_CHAT_ID = service.notifyChatId;
+      }
+    }
+  } catch {
+    // Ignore — service env is optional
+  }
+
+  return vars;
+}
+
 /**
  * Generate a deterministic UUID from chat ID for session persistence
  */
@@ -67,6 +92,7 @@ export async function invokeClaudeSkill(options: InvokeOptions): Promise<InvokeR
 
   try {
     const workspaceEnv = loadWorkspaceEnv();
+    const serviceEnv = loadServiceEnv();
     const result = await execa('claude', [
       '-p',
       '--dangerously-skip-permissions',
@@ -76,7 +102,7 @@ export async function invokeClaudeSkill(options: InvokeOptions): Promise<InvokeR
       timeout,
       reject: false,
       stdin: 'ignore',
-      env: { ...process.env, ...workspaceEnv },
+      env: { ...process.env, ...workspaceEnv, ...serviceEnv },
     });
 
     return {

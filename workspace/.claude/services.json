@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "services": [
+    {
+      "name": "test-get-1",
+      "githubOwner": "myorg",
+      "githubRepo": "test-api",
+      "tracebackUrl": "https://example.com/logs",
+      "notifyChatId": "oc_test123",
+      "tracebackUrlType": "json",
+      "enabled": true,
+      "addedAt": "2026-04-27T01:24:21.030Z",
+      "addedBy": "cli",
+      "lastErrorHash": "",
+      "lastCheckedAt": "2026-04-27T02:23:16.550Z"
+    },
+    {
+      "name": "test-list-1",
+      "githubOwner": "myorg",
+      "githubRepo": "test-api",
+      "tracebackUrl": "https://logs.example.com/api/tracebacks",
+      "notifyChatId": "oc_test123",
+      "tracebackUrlType": "json",
+      "enabled": true,
+      "addedAt": "2026-04-27T01:24:21.031Z",
+      "addedBy": "cli",
+      "lastErrorHash": "",
+      "lastCheckedAt": "2026-04-27T02:23:26.551Z"
+    },
+    {
+      "name": "test-enabled-1",
+      "githubOwner": "myorg",
+      "githubRepo": "test-api",
+      "tracebackUrl": "https://logs.example.com/api/tracebacks",
+      "notifyChatId": "oc_test123",
+      "tracebackUrlType": "json",
+      "enabled": true,
+      "addedAt": "2026-04-27T01:24:21.031Z",
+      "addedBy": "cli",
+      "lastErrorHash": "",
+      "lastCheckedAt": "2026-04-27T02:23:26.553Z"
+    },
+    {
+      "name": "test-enabled-2",
+      "githubOwner": "myorg",
+      "githubRepo": "test-api",
+      "tracebackUrl": "https://logs.example.com/api/tracebacks",
+      "notifyChatId": "oc_test123",
+      "tracebackUrlType": "json",
+      "enabled": false,
+      "addedAt": "2026-04-27T01:24:21.031Z",
+      "addedBy": "cli"
+    },
+    {
+      "name": "test-update-1",
+      "githubOwner": "myorg",
+      "githubRepo": "test-api",
+      "tracebackUrl": "https://logs.example.com/api/tracebacks",
+      "notifyChatId": "oc_test123",
+      "tracebackUrlType": "json",
+      "enabled": false,
+      "addedAt": "2026-04-27T01:24:21.031Z",
+      "addedBy": "cli"
+    },
+    {
+      "name": "test-hash-1",
+      "githubOwner": "myorg",
+      "githubRepo": "test-api",
+      "tracebackUrl": "https://logs.example.com/api/tracebacks",
+      "notifyChatId": "oc_test123",
+      "tracebackUrlType": "json",
+      "enabled": true,
+      "addedAt": "2026-04-27T01:24:21.032Z",
+      "addedBy": "cli",
+      "lastErrorHash": "abc123",
+      "lastCheckedAt": "2026-04-27T02:23:26.554Z"
+    }
+  ]
+}

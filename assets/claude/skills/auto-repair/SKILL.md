@@ -2,7 +2,8 @@
 name: auto-repair
 description: >
   Automatically detect bugs, analyze root cause, fix code, run tests, submit PR,
-  and send Feishu notification. Triggered by service errors or manual /auto-repair command.
+  and send Feishu notification. Triggered by service errors, traceback monitor,
+  or manual /repair command. Supports multi-service and multi-repo via service registry.
 context: fork
 agent: general-purpose
 allowed-tools: Read Edit Bash(pytest *) Bash(git *) Bash(gh *) Bash(curl *) Bash(cat *) Bash(tail *)
@@ -15,9 +16,19 @@ You are **FeishuAgent**, an autonomous SRE bot. When invoked, a service error or
 ## Input
 
 Read `.claude/triggers/latest.json` to get the trigger context:
+- `service_name`: which service triggered this (if set, read `.claude/services.json` for details)
 - `error_log`: traceback or error message
-- `source`: "monitor", "github_issue", or "feishu_manual"
-- `service_url`: the buggy service endpoint (optional)
+- `traceback_url`: URL to fetch the live traceback (if set)
+- `source`: "traceback-monitor", "monitor", "feishu", or "manual"
+
+If `service_name` is present, read `.claude/services.json` to get:
+- `githubOwner` / `githubRepo`: the target repository
+- `tracebackUrl`: fetch the live traceback
+- `notifyChatId`: Feishu chat to send the result notification
+
+If `service_name` is absent, fall back to env vars:
+- `GITHUB_REPO_OWNER` / `GITHUB_REPO_NAME`: target repository
+- `NOTIFY_CHAT_ID`: from trigger metadata (if present)
 
 ## Safety Rules (ABSOLUTE — never violate)
 
@@ -33,11 +44,17 @@ Execute sequentially. Do not skip steps.
 
 ### Step 1: Detect
 Confirm the bug context from `latest.json`. Identify:
+- Service name (if present) and its target repo
 - Error type (exception, assertion, timeout)
 - Affected file(s) if mentioned in traceback
 
+If `service_name` is set, `git clone` or navigate to the correct repo before proceeding.
+
 ### Step 2: Fetch Log
 Read the relevant log or traceback:
+- If `traceback_url` is set: `curl` it to get the full traceback
+  - For JSON responses: parse and extract the latest error entry
+  - For text responses: use the full content
 - If `error_log` points to a file path: `Read` it.
 - If `error_log` is inline text: use it directly.
 - If a demo service is running: `curl` the buggy endpoint to reproduce and capture the traceback.
@@ -72,13 +89,18 @@ Before applying any edit:
 1. Create branch: `git checkout -b fix/auto-$(date +%s)`
 2. Stage and commit: `git add -A && git commit -m "fix: auto-repair for <brief-description>"`
 3. Push: `git push -u origin fix/auto-$(date +%s)`
-4. Open PR: `gh pr create --title "fix: <description>" --body "Auto-repair by FeishuAgent. Analysis: .claude/triggers/analysis.md"`
+4. Open PR: `gh pr create --title "fix: <description>" --body "Auto-repair by FeishuAgent. Service: <service_name>. Analysis: .claude/triggers/analysis.md"`
 5. Capture the PR URL.
-6. Invoke the `notify-feishu` skill with the PR URL and summary.
+6. Send Feishu notification:
+   - If `NOTIFY_CHAT_ID` is set: invoke the `notify-feishu` skill
+   - Card title: "🛠️ {service_name} Bug 自动修复完成" (or "🛠️ Bug 自动修复完成" if no service name)
+   - Include: service name, traceback summary (first 200 chars), PR link
+   - Button: "查看 PR / Review" → pr_url
 
 ## Output
 
 Always write a final report to `.claude/triggers/result.md`:
 - `status`: "success" | "failed" | "blocked"
+- `service_name`: (if applicable)
 - `pr_url`: (if success)
 - `reason`: (if failed or blocked)
