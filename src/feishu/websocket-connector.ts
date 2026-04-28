@@ -1,7 +1,8 @@
 import * as lark from '@larksuiteoapi/node-sdk';
 import { log } from '../utils/logger.js';
 import { MessageRouter, type MessageData, type SendMessageFn } from './message-router.js';
-import { CardDispatcher, type CardActionPayload } from './interactions/card-dispatcher.js';
+import { CardDispatcher, type CardActionPayload, type CardActionResponse } from './interactions/card-dispatcher.js';
+import { SessionHistoryStore } from './interactions/session-history-store.js';
 import { SessionStore } from './interactions/session-store.js';
 import { CommandRegistry } from './commands/command-registry.js';
 import { RepairCommand } from './commands/repair-command.js';
@@ -9,9 +10,10 @@ import { StatusCommand } from './commands/status-command.js';
 import { ServiceCommand } from './commands/service-command.js';
 import { HelpCommand } from './commands/help-command.js';
 import { MenuCommand } from './commands/menu-command.js';
-import { createNavigationCard } from './card-builder.js';
-import { listServices } from '../service/registry.js';
 import { SessionManager } from '../gateway/session-manager.js';
+import { CardKitManager } from './card-kit.js';
+import { createMainMenuCard } from './card-builder/menu-cards.js';
+import { createNavigationCard } from './card-builder.js';
 
 // SDK 事件类型是扁平的，直接在 data 里
 export interface P2PChatEnteredData {
@@ -39,10 +41,12 @@ export class FeishuWebSocket {
 
   // Dependencies
   private sessionStore: SessionStore;
+  private sessionHistoryStore: SessionHistoryStore;
   private commandRegistry: CommandRegistry;
   private messageRouter: MessageRouter;
   private cardDispatcher: CardDispatcher;
   private sessionManager: SessionManager;
+  private cardKitManager: CardKitManager;
 
   constructor(config: FeishuWebSocketConfig) {
     this.config = config;
@@ -54,6 +58,7 @@ export class FeishuWebSocket {
 
     // Initialize dependencies
     this.sessionStore = new SessionStore();
+    this.sessionHistoryStore = new SessionHistoryStore(process.cwd());
     this.commandRegistry = new CommandRegistry();
 
     // Register commands
@@ -63,10 +68,14 @@ export class FeishuWebSocket {
     this.commandRegistry.register(new HelpCommand());
     this.commandRegistry.register(new MenuCommand());
 
+    // CardKit manager for in-place card updates
+    this.cardKitManager = new CardKitManager(this.client, config.domain);
+
     // Create sendMessage interface for MessageRouter
     const sendMessage: SendMessageFn = {
       sendTextMessage: (chatId: string, text: string) => this.sendTextMessage(chatId, text),
       sendCardMessage: (chatId: string, card: object) => this.sendCardMessageRaw(chatId, card),
+      sendMenuCard: (chatId: string) => this.sendMenuCard(chatId),
       sendAckReaction: (messageId: string) => this.sendAckReaction(messageId),
       sendCompletionReaction: (messageId: string) => this.sendCompletionReaction(messageId),
       isConnected: () => this.connected,
@@ -74,9 +83,9 @@ export class FeishuWebSocket {
 
     this.messageRouter = new MessageRouter(this.commandRegistry, this.sessionStore, sendMessage);
 
-    // CardDispatcher needs sendMessage to send cards
+    // CardDispatcher needs sendCard to send cards and cardKitManager for updates
     const sendCard = (chatId: string, card: object) => this.sendCardMessageRaw(chatId, card);
-    this.cardDispatcher = new CardDispatcher(this.sessionStore, sendCard);
+    this.cardDispatcher = new CardDispatcher(this.sessionStore, this.sessionHistoryStore, this.cardKitManager, sendCard);
 
     // SessionManager for directory sessions
     this.sessionManager = new SessionManager(this.sessionStore, sendMessage);
@@ -89,7 +98,7 @@ export class FeishuWebSocket {
         await this.handleMessage(data);
       },
       'card.action.trigger': async (data: CardActionPayload) => {
-        await this.handleCardAction(data);
+        return await this.handleCardAction(data);
       },
       'im.chat.access_event.bot_p2p_chat_entered_v1': async (data: P2PChatEnteredData) => {
         await this.handleP2PChatEntered(data);
@@ -206,11 +215,22 @@ export class FeishuWebSocket {
     }
   }
 
-  private async handleCardAction(data: CardActionPayload): Promise<void> {
+  private async handleCardAction(data: CardActionPayload): Promise<CardActionResponse | void> {
     try {
-      await this.cardDispatcher.dispatch(data);
+      const response = await this.cardDispatcher.dispatch(data);
+      log.info('feishu', 'Card action response', {
+        hasToast: !!response.toast,
+        toastType: response.toast?.type,
+        toastContent: response.toast?.content,
+        hasCard: !!response.card,
+        cardType: response.card?.type,
+        cardDataKeys: response.card?.data ? Object.keys(response.card.data) : [],
+        fullResponse: JSON.stringify(response).slice(0, 500)
+      });
+      return response;
     } catch (error) {
       log.error('feishu', 'Error handling card action', { error: String(error) });
+      return { toast: { type: 'error', content: '操作失败' } };
     }
   }
 
@@ -229,10 +249,8 @@ export class FeishuWebSocket {
         return;
       }
 
-      // Send navigation card
-      const services = listServices();
-      const card = createNavigationCard({ showServiceCount: services.length });
-      await this.sendCardMessageRaw(chatId, card);
+      // Send navigation card via cardkit
+      await this.sendMenuCard(chatId);
       this.sessionStore.set(chatId, { hasReceivedNav: true });
 
       log.info('feishu', 'Sent navigation card on P2P chat enter', { chatId });
@@ -373,6 +391,54 @@ export class FeishuWebSocket {
       log.messageOut(chatId, '[Interactive Card]', 'interactive');
     } catch (error) {
       log.error('feishu', 'Error sending raw card message', { chatId, error: String(error) });
+    }
+  }
+
+  /**
+   * Send menu card via cardkit: create entity then send by card_id
+   */
+  private async sendMenuCard(chatId: string): Promise<void> {
+    try {
+      const { card, elementIds } = createMainMenuCard();
+      const cardId = await this.cardKitManager.createCard(card);
+
+      if (!cardId) {
+        log.warn('feishu', 'cardkit createCard returned null, falling back to v1.0 card', { chatId });
+        await this.sendCardMessageRaw(chatId, createNavigationCard());
+        return;
+      }
+
+      // Send message with card content
+      // Note: cardkit creates a card entity, but sending requires the actual card JSON in content
+      await this.client.im.v1.message.create({
+        params: {
+          receive_id_type: 'chat_id',
+        },
+        data: {
+          receive_id: chatId,
+          content: JSON.stringify(card),
+          msg_type: 'interactive',
+        },
+      });
+
+      // Save card state for subsequent updates
+      this.sessionStore.set(chatId, {
+        cardId,
+        cardSequence: 1,
+        cardElementIds: elementIds,
+      });
+
+      log.messageOut(chatId, '[Menu Card via CardKit]', 'interactive');
+    } catch (error) {
+      const err = error as any;
+      log.error('feishu', 'Error sending menu card', {
+        chatId,
+        message: err.message,
+        status: err.response?.status,
+        data: err.response?.data,
+        headers: err.response?.headers,
+      });
+      await this.sendTextMessage(chatId, `⚠️ 菜单加载失败: ${err.message || String(error)}`);
     }
   }
 }

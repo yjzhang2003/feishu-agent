@@ -21,6 +21,12 @@ export interface SessionState {
   hasReceivedNav: boolean;
   mode: SessionMode;
   updatedAt: Date;
+  /** CardKit card_id for in-place card updates */
+  cardId?: string;
+  /** Next sequence number for card batch_update */
+  cardSequence?: number;
+  /** Current card body element IDs for batch update deletion */
+  cardElementIds?: string[];
 }
 
 const DEFAULT_STATE: Omit<SessionState, 'chatId'> = {

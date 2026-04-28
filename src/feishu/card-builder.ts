@@ -4,6 +4,7 @@
  */
 
 import type { FeishuCard, CardElement } from './card.js';
+import { createMainMenuCard } from './card-builder/menu-cards.js';
 
 // Callback button configuration
 export interface CallbackButton {
@@ -11,10 +12,6 @@ export interface CallbackButton {
   action: string; // e.g. "service:add", "nav:help"
   value?: Record<string, unknown>;
   type?: 'primary' | 'default' | 'danger';
-}
-
-export interface NavigationCardOptions {
-  showServiceCount?: number;
 }
 
 // Build a card with callback buttons in action area
@@ -77,30 +74,20 @@ export function md(content: string): CardElement {
 }
 
 // Navigation card - shown when user first enters chat
-export function createNavigationCard(options?: NavigationCardOptions): FeishuCard {
+// NOTE: This is the legacy 1.0 format. Menu cards now use cardkit 2.0 via createMainMenuCard().
+export function createNavigationCard(): FeishuCard {
   return createCallbackCard({
     title: '🤖 欢迎使用 Feishu Agent',
     elements: [
-      md('**👋 您好！我是 Feishu Agent。**'),
+      md('**👋 欢迎使用 Feishu Agent！**'),
       md(''),
-      md('我可以帮你分析错误日志、自动修复问题、管理监控服务。直接发送消息即可与我对话！'),
+      md('我可以帮你分析错误日志、自动修复问题、管理监控服务。'),
       md(''),
-      md('**📌 会话模式**'),
-      md('**💬 直接对话** - 在当前会话直接与 Claude 对话'),
-      md('**📁 目录会话** - 在指定项目目录启动 Claude 进程'),
-      md(''),
-      md('**📋 功能菜单**'),
-      md('**🛠️ 自动修复** - 分析错误日志并自动修复'),
-      md('**📊 服务管理** - 管理 traceback 监控服务'),
-      md('**❓ 帮助** - 查看所有命令'),
-      md(''),
-      md('💡 **提示**：发送 `/菜单` 可随时调出此菜单'),
+      md('💡 发送消息即可对话，发送 `/菜单` 可随时调出此菜单'),
     ],
     buttons: [
-      { text: '💬 直接对话', action: 'session:direct', type: 'primary' },
-      { text: '📁 目录会话', action: 'session:directory', type: 'default' },
-      { text: '🛠️ 自动修复', action: 'nav:repair', type: 'default' },
-      { text: '📊 服务管理', action: 'nav:service', type: 'default' },
+      { text: '🆕 新建会话', action: 'menu:new', type: 'primary' },
+      { text: '📋 历史会话', action: 'menu:history', type: 'default' },
     ],
   });
 }

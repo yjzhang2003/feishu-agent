@@ -4,10 +4,12 @@
  */
 
 import { SessionStore } from '../session-store.js';
+import { SessionHistoryStore } from '../session-history-store.js';
 import { log } from '../../../utils/logger.js';
 import { createCallbackCard, md } from '../../card-builder.js';
 import { listSessions, type SessionInfo } from '../../../trigger/invoker.js';
 import { install } from '../../../marketplace/index.js';
+import { existsSync, statSync } from 'fs';
 
 export interface SendCardFn {
   (chatId: string, card: object): Promise<void>;
@@ -16,6 +18,7 @@ export interface SendCardFn {
 export class SessionAddFlow {
   constructor(
     private sessionStore: SessionStore,
+    private sessionHistoryStore: SessionHistoryStore,
     private sendCard: SendCardFn
   ) {}
 
@@ -60,6 +63,11 @@ export class SessionAddFlow {
       return { done: false };
     }
 
+    if (!existsSync(trimmedDir) || !statSync(trimmedDir).isDirectory()) {
+      await this.sendCard(chatId, this.createErrorCard(`目录不存在: \`${trimmedDir}\`\n\n请输入一个有效的目录路径`));
+      return { done: false };
+    }
+
     // Store directory and list sessions
     this.sessionStore.set(chatId, {
       flow: 'session-select-session',
@@ -84,6 +92,7 @@ export class SessionAddFlow {
         mode: 'directory',
         data: { directory: trimmedDir },
       });
+      this.sessionHistoryStore.addHistory(chatId, { directory: trimmedDir, sessionId: null });
       await this.sendCard(chatId, this.createNoSessionCard(trimmedDir));
     }
 
@@ -103,6 +112,7 @@ export class SessionAddFlow {
         mode: 'directory',
         data: { directory },
       });
+      this.sessionHistoryStore.addHistory(chatId, { directory, sessionId: null });
       await this.sendCard(chatId, this.createSuccessCard(directory, null));
       return { done: true };
     }
@@ -120,6 +130,7 @@ export class SessionAddFlow {
         mode: 'directory',
         data: { directory, sessionId: selectedSession.id },
       });
+      this.sessionHistoryStore.addHistory(chatId, { directory, sessionId: selectedSession.id });
       await this.sendCard(chatId, this.createSuccessCard(directory, selectedSession.id));
       return { done: true };
     }
@@ -133,6 +144,7 @@ export class SessionAddFlow {
         mode: 'directory',
         data: { directory, sessionId: matched.id },
       });
+      this.sessionHistoryStore.addHistory(chatId, { directory, sessionId: matched.id });
       await this.sendCard(chatId, this.createSuccessCard(directory, matched.id));
       return { done: true };
     }

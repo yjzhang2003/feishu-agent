@@ -1,25 +1,40 @@
 /**
  * Card action dispatcher - routes card button callbacks to flows
+ * Menu card updates use CardKit batch_update API for in-place updates
  */
 
 import { SessionStore } from './session-store.js';
+import { SessionHistoryStore } from './session-history-store.js';
 import { ServiceAddFlow, type SendCardFn } from './flows/service-add-flow.js';
 import { SessionAddFlow } from './flows/session-add-flow.js';
 import { log } from '../../utils/logger.js';
+import { createMainMenuCard, createNewSessionCard, createSessionHistoryCard, createSessionDetailCard } from '../card-builder/menu-cards.js';
+import { CardKitManager } from '../card-kit.js';
 
 export interface CardActionPayload {
-  messageId: string;
-  chatId: string;
-  operator?: { openId?: string; userId?: string; name?: string };
-  action: {
-    value: Record<string, unknown>;
-    tag: string;
+  schema?: string;
+  event_id?: string;
+  token?: string;
+  event_type?: string;
+  operator?: { open_id?: string; user_id?: string; union_id?: string };
+  action?: {
+    value?: Record<string, unknown>;
+    tag?: string;
+    name?: string;
   };
+  context?: {
+    open_message_id?: string;
+    open_chat_id?: string;
+  };
+  host?: string;
 }
 
 export interface CardActionResponse {
   toast?: { type: 'success' | 'error' | 'info'; content: string };
-  card?: object;
+  card?: {
+    type: 'raw';
+    data: object;
+  };
 }
 
 export class CardDispatcher {
@@ -28,151 +43,181 @@ export class CardDispatcher {
 
   constructor(
     private sessionStore: SessionStore,
+    private sessionHistoryStore: SessionHistoryStore,
+    private cardKitManager: CardKitManager,
     sendCard: SendCardFn
   ) {
     this.serviceAddFlow = new ServiceAddFlow(sessionStore, sendCard);
-    this.sessionAddFlow = new SessionAddFlow(sessionStore, sendCard);
+    this.sessionAddFlow = new SessionAddFlow(sessionStore, sessionHistoryStore, sendCard);
   }
 
   async dispatch(payload: CardActionPayload): Promise<CardActionResponse> {
-    const { chatId, operator, action } = payload;
-    const senderOpenId = operator?.openId || '';
-    const actionValue = action.value?.action as string || '';
-    const [, actionName] = actionValue.split(':');
+    const chatId = payload.context?.open_chat_id ?? '';
+    const operatorOpenId = payload.operator?.open_id ?? '';
+    const action = payload.action;
+    const actionValue = action?.value?.action as string || '';
 
     log.info('dispatcher', 'Card action received', { chatId, action: actionValue });
 
     try {
-      // Route based on action prefix
+      if (actionValue.startsWith('menu:')) {
+        return await this.handleMenuAction(actionValue, chatId, operatorOpenId);
+      }
+
       if (actionValue.startsWith('nav:')) {
-        return this.handleNavAction(actionName, chatId, payload);
+        const [, actionName] = actionValue.split(':');
+        return this.handleNavAction(actionName, chatId);
       }
 
       if (actionValue.startsWith('service:')) {
-        return this.handleServiceAction(actionName, chatId, payload);
-      }
-
-      if (actionValue.startsWith('repair:')) {
-        return this.handleRepairAction(actionName, chatId, payload);
+        const [, actionName] = actionValue.split(':');
+        return this.handleServiceAction(actionName, chatId, operatorOpenId);
       }
 
       if (actionValue.startsWith('session:')) {
-        return this.handleSessionAction(actionName, chatId, payload, senderOpenId);
+        const [, actionName] = actionValue.split(':');
+        return this.handleSessionAction(actionName, chatId, operatorOpenId);
       }
 
-      // Unknown action
-      return {
-        toast: { type: 'error', content: '未知操作' },
-      };
+      return { toast: { type: 'error', content: '未知操作' } };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       log.error('dispatcher', 'Card dispatch error', { chatId, action: actionValue, error: msg });
-      return {
-        toast: { type: 'error', content: `操作失败: ${msg}` },
-      };
+      return { toast: { type: 'error', content: `操作失败: ${msg}` } };
     }
   }
 
-  private handleNavAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
-    // Navigation actions just trigger command handlers, which will be done via message-router
-    // The dispatcher returns a placeholder - actual handling will be done when user sends command
+  private async handleMenuAction(actionValue: string, chatId: string, operatorOpenId: string): Promise<CardActionResponse> {
+    const parts = actionValue.split(':');
+    const subAction = parts[1];
+    const param = parts[2];
+
+    switch (subAction) {
+      case 'new':
+        return this.updateMenuCard(createNewSessionCard(), { type: 'info', content: '' });
+
+      case 'new-direct':
+        this.sessionStore.set(chatId, { mode: 'direct', flow: 'none' });
+        return this.updateMenuCard(createMainMenuCard(), { type: 'success', content: '已切换到直接对话模式' });
+
+      case 'new-directory':
+        this.sessionAddFlow.start(chatId, operatorOpenId);
+        return {};
+
+      case 'history': {
+        const entries = this.sessionHistoryStore.listHistory(chatId);
+        return this.updateMenuCard(createSessionHistoryCard(entries), { type: 'info', content: '' });
+      }
+
+      case 'detail': {
+        const index = parseInt(param, 10);
+        const entry = this.sessionHistoryStore.getEntry(chatId, index);
+        if (!entry) {
+          return { toast: { type: 'error', content: '会话不存在' } };
+        }
+        return this.updateMenuCard(createSessionDetailCard(entry, index), { type: 'info', content: '' });
+      }
+
+      case 'resume': {
+        const resumeIndex = parseInt(param, 10);
+        const entry = this.sessionHistoryStore.getEntry(chatId, resumeIndex);
+        if (!entry) {
+          return { toast: { type: 'error', content: '会话不存在' } };
+        }
+        this.sessionHistoryStore.addHistory(chatId, {
+          directory: entry.directory,
+          sessionId: entry.sessionId,
+        });
+        this.sessionStore.set(chatId, {
+          mode: 'directory',
+          flow: 'none',
+          data: { directory: entry.directory, sessionId: entry.sessionId },
+        });
+        return this.updateMenuCard(createMainMenuCard(), { type: 'success', content: `已恢复目录会话: ${entry.directory}` });
+      }
+
+      case 'delete': {
+        const deleteIndex = parseInt(param, 10);
+        this.sessionHistoryStore.removeHistory(chatId, deleteIndex);
+        const updatedEntries = this.sessionHistoryStore.listHistory(chatId);
+        return this.updateMenuCard(createSessionHistoryCard(updatedEntries), { type: 'success', content: '已删除历史会话' });
+      }
+
+      case 'back':
+        return this.updateMenuCard(createMainMenuCard(), { type: 'info', content: '' });
+
+      default:
+        return { toast: { type: 'error', content: '未知菜单操作' } };
+    }
+  }
+
+  /**
+   * Return card update via callback response (not batch_update API)
+   * According to Feishu docs, batch_update cannot be used during user interaction (error 200810)
+   * Instead, we return the new card directly in the callback response
+   */
+  private updateMenuCard(
+    buildResult: { card: object; elementIds: string[] },
+    toast: { type: 'success' | 'error' | 'info'; content: string }
+  ): CardActionResponse {
+    const { card } = buildResult;
+
+    const response: CardActionResponse = {
+      toast: toast.content ? toast : undefined,
+      card: {
+        type: 'raw',
+        data: card,
+      },
+    };
+
+    return response;
+  }
+
+  private handleNavAction(action: string, chatId: string): CardActionResponse {
     log.info('dispatcher', 'Nav action', { chatId, action });
 
     switch (action) {
       case 'back':
-        // Return to navigation card - handled by message-router
-        return {
-          toast: { type: 'info', content: '返回导航' },
-        };
+        return this.updateMenuCard(createMainMenuCard(), { type: 'info', content: '' });
       case 'repair':
-        return {
-          toast: { type: 'info', content: '请输入要修复的问题描述' },
-        };
+        return { toast: { type: 'info', content: '请输入要修复的问题描述' } };
       case 'service':
-        return {
-          toast: { type: 'info', content: '打开服务管理...' },
-        };
-      case 'status':
-        return {
-          toast: { type: 'info', content: '查看系统状态...' },
-        };
-      case 'help':
-        return {
-          toast: { type: 'info', content: '显示帮助信息...' },
-        };
+        return { toast: { type: 'info', content: '打开服务管理...' } };
       default:
-        return {
-          toast: { type: 'error', content: '未知导航操作' },
-        };
+        return { toast: { type: 'error', content: '未知导航操作' } };
     }
   }
 
-  private handleServiceAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
-    const senderOpenId = payload.operator?.openId || '';
-
+  private handleServiceAction(action: string, chatId: string, senderOpenId: string): CardActionResponse {
     switch (action) {
       case 'add-start':
         this.serviceAddFlow.start(chatId, senderOpenId);
-        return {
-          toast: { type: 'info', content: '开始注册服务...' },
-        };
+        return { toast: { type: 'info', content: '开始注册服务...' } };
       case 'add-cancel':
         this.serviceAddFlow.cancel(chatId);
         return {};
       case 'list':
-        return {
-          toast: { type: 'info', content: '使用 /service list 查看' },
-        };
+        return { toast: { type: 'info', content: '使用 /service list 查看' } };
       default:
-        return {
-          toast: { type: 'error', content: '未知服务操作' },
-        };
+        return { toast: { type: 'error', content: '未知服务操作' } };
     }
   }
 
-  private handleRepairAction(action: string, chatId: string, payload: CardActionPayload): CardActionResponse {
-    log.info('dispatcher', 'Repair action', { chatId, action });
-
-    switch (action) {
-      case 'start':
-        return {
-          toast: { type: 'info', content: '请输入要修复的问题描述' },
-        };
-      default:
-        return {
-          toast: { type: 'error', content: '未知修复操作' },
-        };
-    }
-  }
-
-  private handleSessionAction(action: string, chatId: string, payload: CardActionPayload, senderOpenId: string): CardActionResponse {
+  private handleSessionAction(action: string, chatId: string, senderOpenId: string): CardActionResponse {
     log.info('dispatcher', 'Session action', { chatId, action });
 
     switch (action) {
       case 'direct':
         this.sessionStore.set(chatId, { mode: 'direct', flow: 'none' });
-        return {
-          toast: { type: 'success', content: '✅ 已切换到直接对话模式' },
-        };
+        return this.updateMenuCard(createMainMenuCard(), { type: 'info', content: '' });
       case 'directory':
-        // Start directory input flow
         this.sessionAddFlow.start(chatId, senderOpenId);
         return {};
       case 'add-cancel':
         this.sessionAddFlow.cancel(chatId);
         return {};
-      case 'select':
-        // User selected a session - this is handled via text input in handleSessionSelect
-        return {};
-      case 'list':
-        // List active sessions
-        return {
-          toast: { type: 'info', content: '📋 正在查询会话列表...' },
-        };
       default:
-        return {
-          toast: { type: 'error', content: '未知会话操作' },
-        };
+        return { toast: { type: 'error', content: '未知会话操作' } };
     }
   }
 }

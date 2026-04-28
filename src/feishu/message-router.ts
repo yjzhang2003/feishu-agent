@@ -8,8 +8,6 @@ import type { CommandHandler, CommandContext } from './commands/types.js';
 import { SessionStore } from './interactions/session-store.js';
 import { invokeClaudeChat, type InvokeResult } from '../trigger/invoker.js';
 import { log } from '../utils/logger.js';
-import { createNavigationCard } from './card-builder.js';
-import { listServices } from '../service/registry.js';
 import type { SessionManager } from '../gateway/session-manager.js';
 
 export interface MessageData {
@@ -20,6 +18,7 @@ export interface MessageData {
 export interface SendMessageFn {
   sendTextMessage(chatId: string, text: string): Promise<void>;
   sendCardMessage(chatId: string, card: object): Promise<void>;
+  sendMenuCard(chatId: string): Promise<void>;
   sendAckReaction(messageId: string): Promise<void>;
   sendCompletionReaction(messageId: string): Promise<void>;
   isConnected(): boolean;
@@ -72,7 +71,14 @@ export class MessageRouter {
     // Send ACK emoji reaction immediately (non-blocking)
     this.sendMessage.sendAckReaction(messageId).catch(() => {});
 
-    // Check if it's a command first - commands handle their own responses
+    // Check for active interaction flow first — flow input (e.g. directory path) may start with /
+    const session = this.sessionStore.get(chatId);
+    if (session.flow !== 'none') {
+      await this.handleFlowInput(chatId, text, senderOpenId, session.flow);
+      return;
+    }
+
+    // Check if it's a command — commands handle their own responses
     const commandMatch = text.match(/^(\/\S+)(?:\s+(.*))?$/s);
     if (commandMatch) {
       const command = commandMatch[1];
@@ -81,17 +87,9 @@ export class MessageRouter {
       return;
     }
 
-    // Check for active interaction flow
-    const session = this.sessionStore.get(chatId);
-    if (session.flow !== 'none') {
-      await this.handleFlowInput(chatId, text, senderOpenId, session.flow);
-      return;
-    }
-
     // Check if user has received navigation card (send if first time)
     if (!session.hasReceivedNav) {
-      const services = listServices();
-      await this.sendMessage.sendCardMessage(chatId, createNavigationCard({ showServiceCount: services.length }));
+      await this.sendMessage.sendMenuCard(chatId);
       this.sessionStore.set(chatId, { hasReceivedNav: true });
     }
 
@@ -123,6 +121,7 @@ export class MessageRouter {
       sendText: (text: string) => this.sendMessage.sendTextMessage(chatId, text),
       sendCard: (card: object) =>
         this.sendMessage.sendCardMessage(chatId, card),
+      sendMenuCard: () => this.sendMessage.sendMenuCard(chatId),
     };
 
     log.command(chatId, command, args.join(' '));
@@ -256,6 +255,12 @@ export class MessageRouter {
 
     if (!trimmedDir.startsWith('/') && !trimmedDir.startsWith('./') && !trimmedDir.startsWith('../')) {
       await this.sendMessage.sendTextMessage(chatId, '❌ 请输入有效路径（绝对路径或相对路径）');
+      return;
+    }
+
+    const { existsSync, statSync } = await import('fs');
+    if (!existsSync(trimmedDir) || !statSync(trimmedDir).isDirectory()) {
+      await this.sendMessage.sendTextMessage(chatId, `❌ 目录不存在: ${trimmedDir}\n请输入一个有效的目录路径`);
       return;
     }
 
