@@ -96,8 +96,12 @@ lark-cli im +messages-reply --message-id <message_id> --text "回复内容"
 - 所有用户可见的回复都必须通过 `lark-cli im +messages-send` 发送
 - chat_id 通过环境变量 `$FEISHU_CHAT_ID` 获取，直接使用
 - 你可以发送多条消息（进度、链接、总结等），不受限制
-- 发送完成后，在 stdout 输出结构化结果：`{"success": true}` 或 `{"success": false, "error": "错误原因"}`
+- 发送完成后，在 stdout 最后一行输出结构化结果（不要用 markdown 代码块包裹）：`{"success": true}` 或 `{"success": false, "error": "错误原因"}`
 - 不要在 stdout 中重复你已经通过 lark-cli 发送的内容
+
+## 用户消息
+
+用户消息通过 `$ARGUMENTS` 传入。请理解用户意图后，通过 lark-cli 发送回复。
 
 ## 注意事项
 
