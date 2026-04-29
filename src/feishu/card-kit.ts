@@ -85,22 +85,28 @@ export class CardKitManager {
   ): Promise<boolean> {
     try {
       const headers = await this.getHeaders();
-      const response = await this.client.httpInstance.put(
-        `${this.domain}/open-apis/cardkit/v1/cards/${cardId}/elements/${elementId}/content`,
-        {
-          content,
-          uuid: crypto.randomUUID(),
-          sequence,
-        },
-        { headers }
-      );
+      const body = {
+        content,
+        uuid: crypto.randomUUID(),
+        sequence,
+      };
+      const url = `${this.domain}/open-apis/cardkit/v1/cards/${cardId}/elements/${elementId}/content`;
+      log.info('cardkit', 'updateCardContent request', { url, body });
+      const response = await this.client.httpInstance.put(url, body, { headers });
 
-      if (response.data?.code !== 0) {
+      log.info('cardkit', 'updateCardContent response', {
+        status: response.status,
+        data: response.data,
+        fullResponse: JSON.stringify(response).slice(0, 500),
+      });
+
+      // CardKit success response may be {} without code field
+      if (response.data && typeof response.data.code === 'number' && response.data.code !== 0) {
         log.warn('cardkit', 'updateCardContent failed', {
           cardId,
           elementId,
-          code: response.data?.code,
-          msg: response.data?.msg,
+          code: response.data.code,
+          msg: response.data.msg,
         });
         return false;
       }
@@ -113,36 +119,43 @@ export class CardKitManager {
         elementId,
         error: err.message,
         responseData: err.response?.data,
+        responseStatus: err.response?.status,
       });
       return false;
     }
   }
 
   /**
-   * Update card settings (e.g., close streaming mode)
+   * Full update card entity (e.g., close streaming mode)
+   * PUT /open-apis/cardkit/v1/cards/:card_id
    */
-  async updateCardSettings(
+  async updateCardFull(
     cardId: string,
-    settings: object,
+    cardData: object,
     sequence: number
   ): Promise<boolean> {
     try {
       const headers = await this.getHeaders();
       const response = await this.client.httpInstance.put(
-        `${this.domain}/open-apis/cardkit/v1/cards/${cardId}/settings`,
+        `${this.domain}/open-apis/cardkit/v1/cards/${cardId}`,
         {
-          settings: JSON.stringify(settings),
+          card: {
+            type: 'card_json',
+            data: JSON.stringify(cardData),
+          },
           uuid: crypto.randomUUID(),
           sequence,
         },
         { headers }
       );
 
-      if (response.data?.code !== 0) {
-        log.warn('cardkit', 'updateCardSettings failed', {
+      // CardKit success response may be {} without code field
+      if (response.data && typeof response.data.code === 'number' && response.data.code !== 0) {
+        log.warn('cardkit', 'updateCardFull failed', {
           cardId,
-          code: response.data?.code,
-          msg: response.data?.msg,
+          code: response.data.code,
+          msg: response.data.msg,
+          data: response.data,
         });
         return false;
       }
@@ -150,7 +163,7 @@ export class CardKitManager {
       return true;
     } catch (error) {
       const err = error as any;
-      log.error('cardkit', 'Error updating card settings', {
+      log.error('cardkit', 'Error updating card full', {
         cardId,
         error: err.message,
         responseData: err.response?.data,

@@ -169,6 +169,7 @@ export class MessageRouter {
   ): Promise<void> {
     let cardId: string | null = null;
     let sequence = 1;
+    let cardJson: Record<string, unknown> | null = null;
 
     // Build card subtitle from mode / directory
     const subtitleText = directory
@@ -178,26 +179,21 @@ export class MessageRouter {
     // Try to create a streaming card entity
     if (this.cardKitManager) {
       try {
-        const cardJson = {
+        cardJson = {
           schema: '2.0',
           header: {
             title: { content: 'Claude', tag: 'plain_text' },
             subtitle: { content: subtitleText, tag: 'plain_text' },
+            template: 'wathet',
           },
           config: {
             streaming_mode: true,
+            update_multi: true,
             summary: { content: '[生成中...]' },
           },
           body: {
             elements: [
               { tag: 'markdown', content: '', element_id: 'reply_md' },
-              {
-                tag: 'plain_text',
-                content: 'Claude Code 回复中...',
-                text_size: 'small',
-                text_color: 'secondary',
-                element_id: 'status_text',
-              },
             ],
           },
         };
@@ -259,26 +255,12 @@ export class MessageRouter {
           scheduleUpdate(accumulatedText);
         },
         onDone: async () => {
+          // Clear debounce timer and flush remaining text
           if (debounceTimer) {
             clearTimeout(debounceTimer);
             debounceTimer = null;
           }
           await flushUpdate();
-          if (cardId) {
-            // Update status to done
-            await this.cardKitManager?.updateCardContent(
-              cardId,
-              'status_text',
-              '✅ Claude Code',
-              sequence++
-            );
-            // Close streaming mode
-            await this.cardKitManager?.updateCardSettings(
-              cardId,
-              { config: { streaming_mode: false } },
-              sequence++
-            );
-          }
         },
       }
     )
