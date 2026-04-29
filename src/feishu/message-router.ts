@@ -207,6 +207,14 @@ export class MessageRouter {
     // Track the element currently receiving stream
     let currentMdId: string | null = null;
     let currentIsPanel = false;
+    let pendingDeltas: string[] = [];
+
+    const flushPending = () => {
+      if (!cardId || !currentMdId || pendingDeltas.length === 0) return;
+      const text = pendingDeltas.join('');
+      pendingDeltas = [];
+      this.cardKitManager?.updateCardContent(cardId, currentMdId, text, sequence++);
+    };
 
     const invokePromise = invokeClaudeChat(
       {
@@ -223,9 +231,11 @@ export class MessageRouter {
         onTextStart: async () => {
           if (!cardId || !this.cardKitManager) return;
           const mdId = `md_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-          await this.cardKitManager.addCardElements(cardId, [{ tag: 'markdown', content: '', element_id: mdId }], 'append', undefined, sequence++);
+          const ok = await this.cardKitManager.addCardElements(cardId, [{ tag: 'markdown', content: '', element_id: mdId }], 'append', undefined, sequence++);
+          if (!ok) return;
           currentMdId = mdId;
           currentIsPanel = false;
+          flushPending();
         },
         onThinkingStart: async () => {
           if (!cardId || !this.cardKitManager) return;
@@ -245,28 +255,40 @@ export class MessageRouter {
               { tag: 'markdown', content: '', element_id: mdId },
             ],
           };
-          await this.cardKitManager.addCardElements(cardId, [panel], 'append', undefined, sequence++);
+          const ok = await this.cardKitManager.addCardElements(cardId, [panel], 'append', undefined, sequence++);
+          if (!ok) return;
           currentMdId = mdId;
           currentIsPanel = true;
+          flushPending();
         },
         onTextDelta: (deltaText) => {
-          if (!cardId || !currentMdId || currentIsPanel) return;
-          this.cardKitManager?.updateCardContent(cardId, currentMdId, deltaText, sequence++);
+          if (!cardId) return;
+          if (!currentMdId || currentIsPanel) {
+            pendingDeltas.push(deltaText);
+            return;
+          }
+          pendingDeltas.push(deltaText);
+          flushPending();
         },
         onThinkingDelta: (deltaText) => {
-          if (!cardId || !currentMdId || !currentIsPanel) return;
-          this.cardKitManager?.updateCardContent(cardId, currentMdId, deltaText, sequence++);
+          if (!cardId) return;
+          if (!currentMdId || !currentIsPanel) {
+            pendingDeltas.push(deltaText);
+            return;
+          }
+          pendingDeltas.push(deltaText);
+          flushPending();
         },
         onToolUse: (toolName, input) => {
-          if (!cardId || !currentMdId || !currentIsPanel) return;
+          if (!cardId) return;
           try {
             const inputObj = JSON.parse(input);
             const inputSummary = JSON.stringify(inputObj, null, 2).slice(0, 500);
-            const toolText = `\n\n**${toolName}**\n\`\`\`\n${inputSummary}\n\`\`\``;
-            this.cardKitManager?.updateCardContent(cardId, currentMdId, toolText, sequence++);
+            pendingDeltas.push(`\n\n**${toolName}**\n\`\`\`\n${inputSummary}\n\`\`\``);
           } catch {
-            this.cardKitManager?.updateCardContent(cardId, currentMdId, `\n\n**${toolName}**`, sequence++);
+            pendingDeltas.push(`\n\n**${toolName}**`);
           }
+          flushPending();
         },
         onDone: async () => {
           if (!cardId) return;
