@@ -271,7 +271,6 @@ export class MessageRouter {
 
     const lines = result.stdout.trim().split('\n');
     let replyText = '';
-    let structuredResult: { success: boolean; error?: string } | null = null;
 
     for (const line of lines) {
       const trimmed = line.trim();
@@ -282,23 +281,9 @@ export class MessageRouter {
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
           replyText += event.delta.text;
         }
-        if (typeof event.success === 'boolean') {
-          structuredResult = event as { success: boolean; error?: string };
-        }
       } catch {
         // Not JSON — ignore (could be lark-cli output or other logs)
       }
-    }
-
-    if (structuredResult) {
-      if (!structuredResult.success) {
-        await this.sendMessage.sendTextMessage(
-          chatId,
-          `❌ ${structuredResult.error || '操作失败'}`
-        );
-      }
-      // success=true means lark-cli already sent the message — nothing to do
-      return;
     }
 
     const trimmedReply = replyText.trim();
