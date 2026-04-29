@@ -96,17 +96,32 @@ export class CardKitManager {
 
       log.info('cardkit', 'updateCardContent response', {
         status: response.status,
+        statusText: response.statusText,
         data: response.data,
+        httpStatus: (response as any).status,
       });
 
       // CardKit success response may be {} without code field
-      if (response.data && typeof response.data.code === 'number' && response.data.code !== 0) {
+      // But HTTP 400 responses land here too — check both
+      const code = response.data?.code;
+      if (response.data && typeof code === 'number' && code !== 0) {
         log.warn('cardkit', 'updateCardContent failed', {
           cardId,
           elementId,
-          code: response.data.code,
+          code,
           msg: response.data.msg,
           fieldViolations: response.data.error?.field_violations,
+          fullResponseBody: JSON.stringify(response.data).slice(0, 500),
+        });
+        return false;
+      }
+
+      if (response.status && response.status >= 400) {
+        log.warn('cardkit', 'updateCardContent HTTP error', {
+          cardId,
+          elementId,
+          httpStatus: response.status,
+          responseData: JSON.stringify(response.data).slice(0, 300),
         });
         return false;
       }
@@ -114,12 +129,16 @@ export class CardKitManager {
       return true;
     } catch (error) {
       const err = error as any;
+      const respData = err.response?.data;
       log.error('cardkit', 'Error updating card content', {
         cardId,
         elementId,
         error: err.message,
-        responseData: err.response?.data,
         responseStatus: err.response?.status,
+        code: respData?.code,
+        msg: respData?.msg,
+        fieldViolations: respData?.error?.field_violations,
+        fullData: JSON.stringify(respData).slice(0, 500),
       });
       return false;
     }
