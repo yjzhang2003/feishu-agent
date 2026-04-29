@@ -171,13 +171,11 @@ export class MessageRouter {
     let sequence = 1;
     let cardJson: Record<string, unknown> | null = null;
 
-    // Build card subtitle from mode / directory
     const subtitleText = directory
       ? `${directory}`
       : '直接对话';
 
-    // Create streaming card with only reply_md initially
-    // Collapsible panels are inserted dynamically as thinking blocks arrive
+    // Create streaming card with empty body — elements are appended as content arrives
     if (this.cardKitManager) {
       try {
         cardJson = {
@@ -193,9 +191,7 @@ export class MessageRouter {
             summary: { content: '[生成中...]' },
           },
           body: {
-            elements: [
-              { tag: 'markdown', content: '', element_id: 'reply_md' },
-            ],
+            elements: [],
           },
         };
         cardId = await this.cardKitManager.createCard(cardJson);
@@ -208,90 +204,9 @@ export class MessageRouter {
       }
     }
 
-    // State for dynamic panel management
-    let lastPanelId = 'reply_md'; // last element for insert_after
-    let currentThinkingPanelId: string | null = null; // panel receiving thinking deltas
-    let currentThinkingMdId: string | null = null;     // thinking_md inside current panel
-    let toolEventCount = 0;
-
-    // Pending content for debounced flushes
-    let pendingText = '';
-    let pendingThinking = '';
-    let debounceTimer: NodeJS.Timeout | null = null;
-    let debounceThinkingTimer: NodeJS.Timeout | null = null;
-    let lastFlushTextLength = 0;
-    let lastFlushThinkingLength = 0;
-
-    // Create a new collapsible_panel and insert it after lastPanelId
-    const insertThinkingPanel = async (): Promise<{ panelId: string; mdId: string }> => {
-      if (!cardId || !this.cardKitManager) return { panelId: '', mdId: '' };
-      const panelId = `tp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const mdId = `tm_${panelId}`;
-      toolEventCount = 0;
-      const panel = {
-        tag: 'collapsible_panel',
-        expanded: true,
-        element_id: panelId,
-        header: {
-          title: { tag: 'markdown', content: '**详情**' },
-          icon: { tag: 'standard_icon', token: 'down-small-ccm_outlined', size: '16px 16px' },
-          icon_position: 'right',
-          icon_expanded_angle: -180,
-        },
-        elements: [
-          { tag: 'markdown', content: '', element_id: mdId },
-        ],
-      };
-      await this.cardKitManager.addCardElements(cardId, [panel], 'insert_after', lastPanelId, sequence++);
-      lastPanelId = panelId;
-      currentThinkingPanelId = panelId;
-      currentThinkingMdId = mdId;
-      return { panelId, mdId };
-    };
-
-    // Flush pending text and thinking content to respective elements
-    const flushUpdate = async () => {
-      if (cardId && pendingText) {
-        await this.cardKitManager?.updateCardContent(cardId, 'reply_md', pendingText, sequence++);
-        lastFlushTextLength = pendingText.length;
-        pendingText = '';
-      }
-      if (cardId && pendingThinking && currentThinkingMdId) {
-        await this.cardKitManager?.updateCardContent(cardId, currentThinkingMdId, pendingThinking, sequence++);
-        lastFlushThinkingLength = pendingThinking.length;
-        pendingThinking = '';
-      }
-    };
-
-    const scheduleTextUpdate = (content: string) => {
-      pendingText = content;
-      if (!debounceTimer && cardId) {
-        debounceTimer = setTimeout(() => {
-          debounceTimer = null;
-          flushUpdate();
-        }, 150);
-      }
-      if (pendingText.length - lastFlushTextLength > 80) {
-        if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
-        flushUpdate();
-      }
-    };
-
-    const scheduleThinkingUpdate = (content: string) => {
-      pendingThinking = content;
-      if (!debounceThinkingTimer && cardId) {
-        debounceThinkingTimer = setTimeout(() => {
-          debounceThinkingTimer = null;
-          flushUpdate();
-        }, 200);
-      }
-      if (pendingThinking.length - lastFlushThinkingLength > 100) {
-        if (debounceThinkingTimer) { clearTimeout(debounceThinkingTimer); debounceThinkingTimer = null; }
-        flushUpdate();
-      }
-    };
-
-    let accumulatedText = '';
+    // Track the element currently receiving stream
+    let currentMdId: string | null = null;
+    let currentIsPanel = false;
 
     const invokePromise = invokeClaudeChat(
       {
@@ -305,37 +220,65 @@ export class MessageRouter {
       },
       300000,
       {
-        onThinkingStart: async () => {
-          // When a new thinking block starts, insert a new collapsible panel
-          await insertThinkingPanel();
+        onTextStart: async () => {
+          if (!cardId || !this.cardKitManager) return;
+          const mdId = `md_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          await this.cardKitManager.addCardElements(cardId, [{ tag: 'markdown', content: '', element_id: mdId }], 'append', undefined, sequence++);
+          currentMdId = mdId;
+          currentIsPanel = false;
         },
-        onTextStart: () => {
-          // When text block starts, stop routing to thinking panel
-          currentThinkingPanelId = null;
-          currentThinkingMdId = null;
+        onThinkingStart: async () => {
+          if (!cardId || !this.cardKitManager) return;
+          const panelId = `panel_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          const mdId = `md_${panelId}`;
+          const panel = {
+            tag: 'collapsible_panel',
+            expanded: true,
+            element_id: panelId,
+            header: {
+              title: { tag: 'markdown', content: '**详情**' },
+              icon: { tag: 'standard_icon', token: 'down-small-ccm_outlined', size: '16px 16px' },
+              icon_position: 'right',
+              icon_expanded_angle: -180,
+            },
+            elements: [
+              { tag: 'markdown', content: '', element_id: mdId },
+            ],
+          };
+          await this.cardKitManager.addCardElements(cardId, [panel], 'append', undefined, sequence++);
+          currentMdId = mdId;
+          currentIsPanel = true;
         },
         onTextDelta: (deltaText) => {
-          accumulatedText += deltaText;
-          scheduleTextUpdate(accumulatedText);
+          if (!cardId || !currentMdId || currentIsPanel) return;
+          this.cardKitManager?.updateCardContent(cardId, currentMdId, deltaText, sequence++);
         },
-        onThinkingDelta: async (deltaText) => {
-          if (!currentThinkingMdId) {
-            // First thinking delta with no panel yet — insert one
-            await insertThinkingPanel();
-          }
-          // Append thinking content to pending (accumulate locally)
-          pendingThinking += deltaText;
-          scheduleThinkingUpdate(pendingThinking);
+        onThinkingDelta: (deltaText) => {
+          if (!cardId || !currentMdId || !currentIsPanel) return;
+          this.cardKitManager?.updateCardContent(cardId, currentMdId, deltaText, sequence++);
         },
         onToolUse: (toolName, input) => {
-          toolEventCount++;
-          // Tool events don't create new panels — they go into the current thinking panel
-          // The thinkingContent is already accumulated, just update the panel
+          if (!cardId || !currentMdId || !currentIsPanel) return;
+          try {
+            const inputObj = JSON.parse(input);
+            const inputSummary = JSON.stringify(inputObj, null, 2).slice(0, 500);
+            const toolText = `\n\n**${toolName}**\n\`\`\`\n${inputSummary}\n\`\`\``;
+            this.cardKitManager?.updateCardContent(cardId, currentMdId, toolText, sequence++);
+          } catch {
+            this.cardKitManager?.updateCardContent(cardId, currentMdId, `\n\n**${toolName}**`, sequence++);
+          }
         },
         onDone: async () => {
-          if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
-          if (debounceThinkingTimer) { clearTimeout(debounceThinkingTimer); debounceThinkingTimer = null; }
-          await flushUpdate();
+          if (!cardId) return;
+          const finalCardJson = {
+            ...cardJson,
+            config: {
+              ...(cardJson?.config as Record<string, unknown>),
+              streaming_mode: false,
+              summary: { content: 'Claude Code' },
+            },
+          };
+          await this.cardKitManager?.updateCardFull(cardId, finalCardJson as object, sequence++);
         },
       }
     )
@@ -345,17 +288,6 @@ export class MessageRouter {
           await this.parseAndSendResponse(result, chatId);
           return;
         }
-
-        // Close streaming mode and update summary
-        const finalCardJson = {
-          ...cardJson,
-          config: {
-            ...(cardJson?.config as Record<string, unknown>),
-            streaming_mode: false,
-            summary: { content: 'Claude Code' },
-          },
-        };
-        await this.cardKitManager?.updateCardFull(cardId, finalCardJson as object, sequence++);
       })
       .catch(async (err: unknown) => {
         log.error('chat', 'Chat failed', { error: String(err) });
