@@ -97,7 +97,6 @@ export class CardKitManager {
       log.info('cardkit', 'updateCardContent response', {
         status: response.status,
         data: response.data,
-        fullResponse: JSON.stringify(response).slice(0, 500),
       });
 
       // CardKit success response may be {} without code field
@@ -107,6 +106,7 @@ export class CardKitManager {
           elementId,
           code: response.data.code,
           msg: response.data.msg,
+          fieldViolations: response.data.error?.field_violations,
         });
         return false;
       }
