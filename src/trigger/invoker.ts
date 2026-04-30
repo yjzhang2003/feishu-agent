@@ -29,12 +29,12 @@ export interface ChatContext {
 }
 
 export interface StreamCallbacks {
-  onTextDelta?: (text: string) => void;
-  onThinkingDelta?: (text: string) => void;
-  onThinkingStart?: () => void;
-  onTextStart?: () => void;
-  onToolUse?: (toolName: string, input: string) => void;
-  onDone?: () => void;
+  onTextDelta?: (text: string) => void | Promise<void>;
+  onThinkingDelta?: (text: string) => void | Promise<void>;
+  onThinkingStart?: () => void | Promise<void>;
+  onTextStart?: () => void | Promise<void>;
+  onToolUse?: (toolName: string, input: string) => void | Promise<void>;
+  onDone?: () => void | Promise<void>;
 }
 
 // Read .env from workspace/.claude/.env and return as env vars object
@@ -175,6 +175,16 @@ export async function invokeClaudeChat(
 
     let fullStdout = '';
     let buffer = '';
+    let streamWork: Promise<void> = Promise.resolve();
+    const enqueueStreamCallback = (work: () => void | Promise<void>) => {
+      streamWork = streamWork
+        .then(async () => {
+          await work();
+        })
+        .catch((err) => {
+          console.error('[invoker] stream callback failed:', err);
+        });
+    };
 
     proc.stdout?.on('data', (chunk: Buffer) => {
       const data = chunk.toString();
@@ -194,18 +204,18 @@ export async function invokeClaudeChat(
           if (actualEvent?.type === 'content_block_start') {
             console.log('[invoker] content_block_start:', JSON.stringify(actualEvent.content_block?.type));
             if (actualEvent.content_block?.type === 'thinking') {
-              callbacks?.onThinkingStart?.();
+              enqueueStreamCallback(() => callbacks?.onThinkingStart?.());
             } else if (actualEvent.content_block?.type === 'text') {
-              callbacks?.onTextStart?.();
+              enqueueStreamCallback(() => callbacks?.onTextStart?.());
             }
           } else if (actualEvent?.type === 'content_block_delta') {
             if (actualEvent.delta?.type === 'text_delta') {
-              callbacks?.onTextDelta?.(actualEvent.delta.text);
+              enqueueStreamCallback(() => callbacks?.onTextDelta?.(actualEvent.delta.text));
             } else if (actualEvent.delta?.type === 'thinking_delta') {
-              callbacks?.onThinkingDelta?.(actualEvent.delta.thinking);
+              enqueueStreamCallback(() => callbacks?.onThinkingDelta?.(actualEvent.delta.thinking));
             }
           } else if (actualEvent?.type === 'tool_use') {
-            callbacks?.onToolUse?.(actualEvent.name || 'unknown', JSON.stringify(actualEvent.input || {}));
+            enqueueStreamCallback(() => callbacks?.onToolUse?.(actualEvent.name || 'unknown', JSON.stringify(actualEvent.input || {})));
           }
         } catch {
           // Not JSON or not a stream event
@@ -214,6 +224,7 @@ export async function invokeClaudeChat(
     });
 
     const result = await proc;
+    await streamWork;
     await callbacks?.onDone?.();
 
     // If session not found, retry without --resume
@@ -233,6 +244,16 @@ export async function invokeClaudeChat(
 
       let retryStdout = '';
       let retryBuffer = '';
+      let retryStreamWork: Promise<void> = Promise.resolve();
+      const enqueueRetryStreamCallback = (work: () => void | Promise<void>) => {
+        retryStreamWork = retryStreamWork
+          .then(async () => {
+            await work();
+          })
+          .catch((err) => {
+            console.error('[invoker] retry stream callback failed:', err);
+          });
+      };
 
       retryProc.stdout?.on('data', (chunk: Buffer) => {
         const data = chunk.toString();
@@ -251,18 +272,18 @@ export async function invokeClaudeChat(
             const actualEvent = parsed.type === 'stream_event' ? parsed.event : parsed;
             if (actualEvent?.type === 'content_block_delta') {
               if (actualEvent.delta?.type === 'text_delta') {
-                callbacks?.onTextDelta?.(actualEvent.delta.text);
+                enqueueRetryStreamCallback(() => callbacks?.onTextDelta?.(actualEvent.delta.text));
               } else if (actualEvent.delta?.type === 'thinking_delta') {
-                callbacks?.onThinkingDelta?.(actualEvent.delta.thinking);
+                enqueueRetryStreamCallback(() => callbacks?.onThinkingDelta?.(actualEvent.delta.thinking));
               }
             } else if (actualEvent?.type === 'content_block_start') {
               if (actualEvent.content_block?.type === 'thinking') {
-                callbacks?.onThinkingStart?.();
+                enqueueRetryStreamCallback(() => callbacks?.onThinkingStart?.());
               } else if (actualEvent.content_block?.type === 'text') {
-                callbacks?.onTextStart?.();
+                enqueueRetryStreamCallback(() => callbacks?.onTextStart?.());
               }
             } else if (actualEvent?.type === 'tool_use') {
-              callbacks?.onToolUse?.(actualEvent.name || 'unknown', JSON.stringify(actualEvent.input || {}));
+              enqueueRetryStreamCallback(() => callbacks?.onToolUse?.(actualEvent.name || 'unknown', JSON.stringify(actualEvent.input || {})));
             }
           } catch {
             // Not JSON or not a stream event
@@ -271,6 +292,7 @@ export async function invokeClaudeChat(
       });
 
       const retryResult = await retryProc;
+      await retryStreamWork;
       await callbacks?.onDone?.();
 
       return {

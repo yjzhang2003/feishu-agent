@@ -223,6 +223,7 @@ export class MessageRouter {
     let pendingThinkingDeltas: string[] = [];
     let mdCounter = 0;
     let panelCounter = 0;
+    let finalTextContent = '';
     // Accumulated full text per element — updateCardContent sends FULL text (not delta)
     const accumulated = new Map<string, string>();
     // Throttle: max ~8 updates/sec to stay under Feishu's 10 ops/sec limit
@@ -344,6 +345,7 @@ export class MessageRouter {
           await flushThinkingImmediate();
         },
         onTextDelta: (deltaText) => {
+          finalTextContent += deltaText;
           pendingTextDeltas.push(deltaText);
           scheduleTextFlush();
         },
@@ -366,20 +368,6 @@ export class MessageRouter {
         onDone: async () => {
           await flushTextImmediate();
           await flushThinkingImmediate();
-          // Update status tag and summary when done
-          if (cardId && this.cardKitManager) {
-            // Clear status tag (update text to empty)
-            await this.cardKitManager.updateCardProps(cardId, 'status_tag', {
-              text: { tag: 'plain_text', content: '' },
-            }, sequence++).catch(() => {});
-            // Update summary with first 100 chars of text content
-            const textContent = accumulated.get('m1') || '';
-            const summaryText = textContent.slice(0, 100).trim() || '回复完成';
-            await this.cardKitManager.updateCardSettings(cardId, {
-              streaming_mode: false,
-              summary: { content: summaryText + (textContent.length > 100 ? '...' : '') },
-            }, sequence++).catch(() => {});
-          }
         },
       }
     )
@@ -388,6 +376,17 @@ export class MessageRouter {
         if (!cardId) {
           await this.parseAndSendResponse(result, chatId);
           return;
+        }
+        if (this.cardKitManager) {
+          const summarySource = finalTextContent.trim();
+          const summaryText = summarySource.slice(0, 100) || '回复完成';
+          await this.cardKitManager.updateCardProps(cardId, 'status_tag', {
+            text: { tag: 'plain_text', content: '已完成' },
+            color: 'green',
+          }, sequence++).catch(() => {});
+          await this.cardKitManager.updateCardSettings(cardId, {
+            summary: { content: summaryText + (summarySource.length > 100 ? '...' : '') },
+          }, sequence++).catch(() => {});
         }
       })
       .catch(async (err: unknown) => {
