@@ -214,21 +214,7 @@ export class MessageRouter {
             },
           },
           body: {
-            elements: [
-              {
-                tag: 'markdown',
-                element_id: 'intro',
-                content: directory
-                  ? `**工作目录**\n\`${directory}\``
-                  : '**对话模式**\n使用默认 workspace 处理普通问答和轻量任务。',
-                icon: {
-                  tag: 'standard_icon',
-                  token: directory ? 'folder_outlined' : 'chatbox_outlined',
-                  color: directory ? 'indigo' : 'turquoise',
-                },
-              },
-              { tag: 'hr', element_id: 'intro_hr' },
-            ],
+            elements: [],
           },
         };
         cardId = await this.cardKitManager.createCard(cardJson);
