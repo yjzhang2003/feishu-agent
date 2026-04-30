@@ -108,6 +108,35 @@ function commandTable(): CardV2Element {
   };
 }
 
+function historyTable(entries: HistoryEntry[]): CardV2Element {
+  return {
+    tag: 'table',
+    page_size: Math.min(Math.max(entries.length, 1), 5),
+    row_height: 'low',
+    margin: '4px 0px 0px 0px',
+    header_style: {
+      text_align: 'left',
+      text_size: 'normal',
+      background_style: 'grey',
+      text_color: 'grey',
+      bold: true,
+      lines: 1,
+    },
+    columns: [
+      { name: 'index', display_name: '#', data_type: 'text', width: '12%', horizontal_align: 'center' },
+      { name: 'directory', display_name: '目录', data_type: 'lark_md', width: '48%' },
+      { name: 'session', display_name: '会话', data_type: 'text', width: '20%' },
+      { name: 'last_used', display_name: '最近', data_type: 'text', width: '20%' },
+    ],
+    rows: entries.map((entry, i) => ({
+      index: String(i + 1),
+      directory: `\`${entry.directory.split('/').pop() || entry.directory}\``,
+      session: entry.sessionId ? `${entry.sessionId.slice(0, 8)}...` : '新会话',
+      last_used: relativeTime(entry.lastUsed),
+    })),
+  };
+}
+
 interface CallbackButton {
   text: string;
   action: string;
@@ -316,9 +345,20 @@ export function createDirectoryInputCard(): object {
     },
     body: {
       elements: [
-        iconMd('**路径示例**\n`/home/user/my-project` · `./my-project` · `../parent`', 'folder_outlined', 'blue'),
+        columnSet([
+          [
+            iconMd('**支持路径**\n绝对路径、相对路径、父级路径都可以。', 'folder_outlined', 'blue'),
+          ],
+          [
+            md('`/home/user/my-project`\n`./my-project`\n`../parent`'),
+          ],
+        ]),
         {
           tag: 'form',
+          direction: 'vertical',
+          vertical_spacing: '12px',
+          padding: '4px 0px 0px 0px',
+          margin: '8px 0px 0px 0px',
           elements: [
             {
               tag: 'input',
@@ -334,13 +374,15 @@ export function createDirectoryInputCard(): object {
                 content: '目录路径：',
               },
               name: 'dir_path',
+              required: true,
               max_length: 500,
             },
             {
               tag: 'column_set',
-              flex_mode: 'none',
+              flex_mode: 'bisect',
               background_style: 'default',
-              horizontal_spacing: 'default',
+              horizontal_spacing: '8px',
+              horizontal_align: 'right',
               columns: [
                 {
                   tag: 'column',
@@ -354,7 +396,13 @@ export function createDirectoryInputCard(): object {
                         content: '创建会话',
                       },
                       type: 'primary',
+                      width: 'default',
+                      icon: {
+                        tag: 'standard_icon',
+                        token: 'add_outlined',
+                      },
                       action_type: 'form_submit',
+                      form_action_type: 'submit',
                       name: 'btn_submit_dir',
                     },
                   ],
@@ -371,6 +419,11 @@ export function createDirectoryInputCard(): object {
                         content: '返回',
                       },
                       type: 'default',
+                      width: 'default',
+                      icon: {
+                        tag: 'standard_icon',
+                        token: 'left_outlined',
+                      },
                       behaviors: [
                         {
                           type: 'callback',
@@ -401,7 +454,22 @@ export function createSessionHistoryCard(entries: HistoryEntry[]): CardBuildResu
       template: 'grey',
       icon: { token: 'history_outlined', color: 'grey' },
       elements: [
-        iconMd('**暂无记录**\n创建目录会话后，会自动保存到这里。', 'history_outlined', 'grey'),
+        {
+          tag: 'column_set',
+          flex_mode: 'none',
+          horizontal_align: 'center',
+          columns: [
+            {
+              tag: 'column',
+              width: 'weighted',
+              weight: 1,
+              horizontal_align: 'center',
+              elements: [
+                iconMd('**暂无历史会话**\n创建目录会话后，会自动保存到这里。', 'history_outlined', 'grey'),
+              ],
+            },
+          ],
+        },
       ],
       buttons: [
         { text: '返回', action: 'menu:back' },
@@ -409,24 +477,16 @@ export function createSessionHistoryCard(entries: HistoryEntry[]): CardBuildResu
     });
   }
 
-  const elements = [
-    md(`**历史列表**\n共 ${entries.length} 个历史会话。点击下方目录按钮查看详情。`),
-  ];
-
-  entries.forEach((entry, i) => {
-    const sessionId = entry.sessionId
-      ? entry.sessionId.slice(0, 8) + '...'
-      : '新会话';
-    elements.push(md(`**${i + 1}.** \`${entry.directory}\`\nSession: \`${sessionId}\` · ${relativeTime(entry.lastUsed)}`));
-  });
-
   return createCardV2({
     title: '历史会话',
     subtitle: '最近使用过的目录上下文',
     template: 'grey',
     icon: { token: 'history_outlined', color: 'grey' },
     tags: [{ text: `${entries.length}`, color: 'neutral' }],
-    elements,
+    elements: [
+      iconMd(`**历史列表**\n共 ${entries.length} 个历史会话。点击下方按钮查看详情。`, 'history_outlined', 'grey'),
+      historyTable(entries),
+    ],
     buttons: [
       ...entries.map((_, i) => ({
         text: `${i + 1}. ${_.directory.split('/').pop() || _.directory}`,
