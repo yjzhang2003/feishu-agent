@@ -214,7 +214,19 @@ export class MessageRouter {
             },
           },
           body: {
-            elements: [],
+            elements: [
+              {
+                tag: 'markdown',
+                element_id: 'pending_hint',
+                content: '正在唤起 Claude Code...',
+                text_size: 'notation',
+                icon: {
+                  tag: 'standard_icon',
+                  token: 'loading_outlined',
+                  color: 'orange',
+                },
+              },
+            ],
           },
         };
         cardId = await this.cardKitManager.createCard(cardJson);
@@ -235,6 +247,7 @@ export class MessageRouter {
     let mdCounter = 0;
     let panelCounter = 0;
     let finalTextContent = '';
+    let pendingHintDeleted = false;
     // Accumulated full text per element — updateCardContent sends FULL text (not delta)
     const accumulated = new Map<string, string>();
     // Throttle: max ~8 updates/sec to stay under Feishu's 10 ops/sec limit
@@ -243,6 +256,12 @@ export class MessageRouter {
 
     const nextMdId = () => `m${++mdCounter}`;
     const nextPanelId = () => `p${++panelCounter}`;
+
+    const deletePendingHint = async () => {
+      if (!cardId || !this.cardKitManager || pendingHintDeleted) return;
+      pendingHintDeleted = true;
+      await this.cardKitManager.deleteCardElements(cardId, ['pending_hint'], sequence++).catch(() => {});
+    };
 
     const doFlushText = async () => {
       if (!cardId || !currentMdId || currentMode !== 'text' || pendingTextDeltas.length === 0) return;
@@ -315,6 +334,7 @@ export class MessageRouter {
         onTextStart: async () => {
           if (!cardId || !this.cardKitManager) return;
           log.info('chat', 'onTextStart', { pendingTextDeltas: pendingTextDeltas.length, currentMdId, currentMode });
+          await deletePendingHint();
           // Flush any pending thinking content first
           await flushThinkingImmediate();
           // Switch to text mode
@@ -336,6 +356,7 @@ export class MessageRouter {
         onThinkingStart: async () => {
           if (!cardId || !this.cardKitManager) return;
           log.info('chat', 'onThinkingStart — creating thinking panel');
+          await deletePendingHint();
           // Flush any pending text content first
           await flushTextImmediate();
           // Switch to thinking mode

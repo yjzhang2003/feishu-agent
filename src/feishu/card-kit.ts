@@ -246,6 +246,62 @@ export class CardKitManager {
   }
 
   /**
+   * Delete elements from a card via batch_update.
+   * POST /open-apis/cardkit/v1/cards/:card_id/batch_update
+   */
+  async deleteCardElements(
+    cardId: string,
+    elementIds: string[],
+    sequence: number
+  ): Promise<boolean> {
+    try {
+      const headers = await this.getHeaders();
+      const actions = [
+        {
+          action: 'delete_elements',
+          params: {
+            element_ids: elementIds,
+          },
+        },
+      ];
+      const body = {
+        uuid: crypto.randomUUID(),
+        sequence,
+        actions: JSON.stringify(actions),
+      };
+      const url = `${this.domain}/open-apis/cardkit/v1/cards/${cardId}/batch_update`;
+      log.info('cardkit', 'deleteCardElements request', { url, body });
+      const response = await this.client.httpInstance.post(url, body, { headers });
+
+      log.info('cardkit', 'deleteCardElements response', {
+        status: response.status,
+        data: response.data,
+      });
+
+      if (response.data && typeof response.data.code === 'number' && response.data.code !== 0) {
+        log.warn('cardkit', 'deleteCardElements failed', {
+          cardId,
+          elementIds,
+          code: response.data.code,
+          msg: response.data.msg,
+        });
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      const err = error as any;
+      log.error('cardkit', 'Error deleting card elements', {
+        cardId,
+        elementIds,
+        error: err.message,
+        responseData: err.response?.data,
+      });
+      return false;
+    }
+  }
+
+  /**
    * Update card settings (streaming_mode, summary, etc.)
    * Uses batch_update API with partial_update_setting action
    */
