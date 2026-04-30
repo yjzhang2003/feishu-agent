@@ -218,11 +218,10 @@ export class MessageRouter {
               {
                 tag: 'markdown',
                 element_id: 'pending_hint',
-                content: '正在唤起 Claude Code...',
-                text_size: 'notation',
+                content: '正在唤起 Claude Code，请稍候...',
                 icon: {
                   tag: 'standard_icon',
-                  token: 'loading_outlined',
+                  token: 'time_outlined',
                   color: 'orange',
                 },
               },
