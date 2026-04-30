@@ -153,8 +153,10 @@ export async function invokeClaudeChat(
   // Use provided sessionId or generate from chatId
   const sessionId = context.sessionId || chatIdToSessionId(context.chatId);
 
-  // Use /lark-chat-guide skill invocation to force Claude to load the skill
-  const prompt = `/lark-chat-guide ${context.message}`;
+  const prompt = [
+    '你正在通过飞书与用户对话。普通问答直接回答；如果用户请求飞书操作，读取 lark-chat-guide 技能。',
+    context.message,
+  ].join('\n\n');
 
   try {
     const workspaceEnv = loadWorkspaceEnv();

@@ -111,7 +111,7 @@ export class FeishuWebSocket {
     // Start SessionManager IPC server
     await this.sessionManager.start();
 
-    // Install plugin into workspace for direct chat mode (skills needed by /lark-chat-guide)
+    // Install Feishu skills into workspace for direct chat mode.
     const workspaceDir = resolve(env.REPO_ROOT, 'workspace');
     installPlugin({ targetDir: workspaceDir }).catch((err) => {
       log.warn('feishu', 'Failed to install plugin into workspace', { error: String(err) });

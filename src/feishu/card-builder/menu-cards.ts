@@ -16,25 +16,6 @@ function md(content: string): CardV2Element {
   return { tag: 'markdown', content };
 }
 
-function panel(title: string, elements: CardV2Element[], options: { expanded?: boolean; color?: string } = {}): CardV2Element {
-  return {
-    tag: 'collapsible_panel',
-    expanded: options.expanded ?? true,
-    background_color: options.color ?? 'grey',
-    padding: '8px 10px 8px 10px',
-    border: {
-      color: 'grey',
-      corner_radius: '8px',
-    },
-    header: {
-      title: { tag: 'markdown', content: title },
-      vertical_align: 'center',
-      padding: '4px 0px 6px 0px',
-    },
-    elements,
-  };
-}
-
 interface CallbackButton {
   text: string;
   action: string;
@@ -150,13 +131,8 @@ export function createMainMenuCard(): CardBuildResult {
     ],
     elements: [
       md('把飞书对话直接连接到 Claude Code。发送普通消息即可开始对话，需要菜单时发送 `/menu`。'),
-      panel('**会话入口**', [
-        md('**新建会话**：切换到直接对话，或绑定一个本地项目目录。'),
-        md('**历史会话**：恢复最近使用过的目录会话。'),
-      ]),
-      panel('**常用指令**', [
-        md('`/menu` 打开此菜单\n`/status` 查看运行状态\n`/service` 管理监控服务\n`/repair` 触发修复流程'),
-      ], { expanded: false }),
+      md('**会话入口**\n- **新建会话**：切换到直接对话，或绑定一个本地项目目录。\n- **历史会话**：恢复最近使用过的目录会话。'),
+      md('**常用指令**\n`/menu` 打开此菜单\n`/status` 查看运行状态\n`/service` 管理监控服务\n`/repair` 触发修复流程'),
     ],
     buttons: [
       { text: '新建会话', action: 'menu:new' },
@@ -173,10 +149,7 @@ export function createNewSessionCard(): CardBuildResult {
     template: 'blue',
     tags: [{ text: 'session', color: 'blue' }],
     elements: [
-      panel('**可选模式**', [
-        md('**直接对话**：使用默认 workspace，适合一般问答和轻量任务。'),
-        md('**目录会话**：绑定指定项目目录，适合代码修改、构建和调试。'),
-      ]),
+      md('**可选模式**\n- **直接对话**：使用默认 workspace，适合一般问答和轻量任务。\n- **目录会话**：绑定指定项目目录，适合代码修改、构建和调试。'),
     ],
     buttons: [
       { text: '直接对话', action: 'menu:new-direct' },
@@ -202,9 +175,7 @@ export function createDirectoryInputCard(): object {
     },
     body: {
       elements: [
-        panel('**路径示例**', [
-          md('`/home/user/my-project` · `./my-project` · `../parent`'),
-        ]),
+        md('**路径示例**\n`/home/user/my-project` · `./my-project` · `../parent`'),
         {
           tag: 'form',
           elements: [
@@ -288,9 +259,7 @@ export function createSessionHistoryCard(entries: HistoryEntry[]): CardBuildResu
       subtitle: '最近使用过的目录上下文',
       template: 'grey',
       elements: [
-        panel('**暂无记录**', [
-          md('创建目录会话后，会自动保存到这里。'),
-        ]),
+        md('**暂无记录**\n创建目录会话后，会自动保存到这里。'),
       ],
       buttons: [
         { text: '返回', action: 'menu:back' },
@@ -299,9 +268,7 @@ export function createSessionHistoryCard(entries: HistoryEntry[]): CardBuildResu
   }
 
   const elements = [
-    panel('**历史列表**', [
-      md(`共 ${entries.length} 个历史会话。点击下方目录按钮查看详情。`),
-    ]),
+    md(`**历史列表**\n共 ${entries.length} 个历史会话。点击下方目录按钮查看详情。`),
   ];
 
   entries.forEach((entry, i) => {
@@ -338,11 +305,7 @@ export function createSessionDetailCard(entry: HistoryEntry, index: number): Car
     subtitle: '恢复或删除此目录上下文',
     template: 'indigo',
     elements: [
-      panel('**目录上下文**', [
-        md(`**目录**\n\`${entry.directory}\``),
-        md(`**Session ID**\n${sessionIdDisplay}`),
-        md(`**上次使用**\n${relativeTime(entry.lastUsed)}`),
-      ]),
+      md(`**目录上下文**\n**目录**\n\`${entry.directory}\`\n\n**Session ID**\n${sessionIdDisplay}\n\n**上次使用**\n${relativeTime(entry.lastUsed)}`),
     ],
     buttons: [
       { text: '继续会话', action: `menu:resume:${index}` },

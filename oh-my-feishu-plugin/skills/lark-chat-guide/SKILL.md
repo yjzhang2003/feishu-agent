@@ -107,6 +107,9 @@ lark-cli im +messages-reply --message-id <message_id> --text "回复内容"
 
 - 所有用户可见的回复都必须通过 `lark-cli im +messages-send` 发送
 - chat_id 通过环境变量 `$FEISHU_CHAT_ID` 获取，直接使用
+- message_id 通过环境变量 `$FEISHU_MESSAGE_ID` 获取，回复原消息或添加 reaction 时使用
+- chat_type 通过环境变量 `$FEISHU_CHAT_TYPE` 获取，判断私聊或群聊时使用
+- sender_open_id 通过环境变量 `$FEISHU_SENDER_OPEN_ID` 获取，需要识别发送人时使用
 - 你可以发送多条消息（进度、链接、总结等），不受限制
 - **不要在 stdout 中输出任何额外文本** — Gateway 会读取 stdout 并转发给用户，如果你在 lark-cli 之外又在 stdout 中输出内容，用户会收到重复消息
 - 不要在 stdout 中重复你已经通过 lark-cli 发送的内容
@@ -118,7 +121,7 @@ lark-cli im +messages-reply --message-id <message_id> --text "回复内容"
 
 ## 用户消息
 
-用户消息通过 `$ARGUMENTS` 传入。请理解用户意图后，通过 lark-cli 发送回复。
+用户消息通过 `$ARGUMENTS` 传入。飞书上下文通过环境变量提供，不要求用户在消息里显式提供 chat_id 或 message_id。请理解用户意图后，通过 stdout 或 lark-cli 回复。
 
 ## 注意事项
 
